@@ -71,12 +71,79 @@ pub fn read_process(pid: u32) -> Option<Process> {
         ..Default::default()
     })
 }
+#[derive(Clone, Debug, Default)]
+pub struct FileSystemInfo {
+    pub device: String,
+    pub mount_point: String,
+    pub fs_type: String,
+    pub total: u64,
+    pub free: u64,
+    pub avail: u64,
+    pub used: u64,
+    pub used_percent: f64,
+}
+
+pub fn read_filesystems() -> Vec<FileSystemInfo> {
+    let mut list = Vec::new();
+    let Ok(s) = fs::read_to_string("/proc/mounts") else {
+        return list;
+    };
+    use std::ffi::CString;
+    let mut seen = std::collections::HashSet::new();
+    for line in s.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let dev = parts[0];
+        let mount_point = parts[1];
+        let fs_type = parts[2];
+        if !dev.starts_with("/dev/") {
+            continue;
+        }
+        if !seen.insert(mount_point.to_string()) {
+            continue;
+        }
+        let Ok(c_path) = CString::new(mount_point) else {
+            continue;
+        };
+        unsafe {
+            let mut stat: libc::statvfs = std::mem::zeroed();
+            if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+                let frsize = stat.f_frsize as u64;
+                let total = frsize * stat.f_blocks as u64;
+                let free = frsize * stat.f_bfree as u64;
+                let avail = frsize * stat.f_bavail as u64;
+                let used = total.saturating_sub(free);
+                let used_percent = if total > 0 {
+                    (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0)
+                } else {
+                    0.0
+                };
+                list.push(FileSystemInfo {
+                    device: dev.into(),
+                    mount_point: mount_point.into(),
+                    fs_type: fs_type.into(),
+                    total,
+                    free,
+                    avail,
+                    used,
+                    used_percent,
+                });
+            }
+        }
+    }
+    list
+}
+
 #[derive(Default)]
 pub struct Sampler {
     previous: HashMap<u32, Process>,
     at: Option<Instant>,
     net: Option<(u64, u64)>,
     cpu: Option<(u64, u64)>,
+    core_cpu: Vec<(u64, u64)>,
+    disk: Option<(u64, u64)>,
 }
 #[derive(Default, Clone)]
 pub struct Snapshot {
@@ -85,6 +152,19 @@ pub struct Snapshot {
     pub up: f64,
     pub cpu: f64,
     pub memory: String,
+    pub cpu_cores: Vec<f64>,
+    pub memory_used: u64,
+    pub memory_total: u64,
+    pub memory_cached: u64,
+    pub swap_used: u64,
+    pub swap_total: u64,
+    pub net_rx_total: u64,
+    pub net_tx_total: u64,
+    pub disk_read_rate: f64,
+    pub disk_write_rate: f64,
+    pub disk_read_total: u64,
+    pub disk_write_total: u64,
+    pub filesystems: Vec<FileSystemInfo>,
 }
 impl Sampler {
     pub fn sample(&mut self) -> Snapshot {
@@ -132,6 +212,8 @@ impl Sampler {
                     }
                 }
             }
+            out.net_rx_total = rx;
+            out.net_tx_total = tx;
             if let Some((r, t)) = self.net {
                 out.down = rx.saturating_sub(r) as f64 / dt;
                 out.up = tx.saturating_sub(t) as f64 / dt;
@@ -139,26 +221,82 @@ impl Sampler {
             self.net = Some((rx, tx));
         }
         if let Ok(s) = fs::read_to_string("/proc/stat") {
-            let v: Vec<u64> = s
-                .lines()
-                .next()
-                .unwrap_or("")
-                .split_whitespace()
-                .skip(1)
-                .take(8)
-                .filter_map(|v| v.parse().ok())
-                .collect();
-            if v.len() >= 5 {
-                let total = v.iter().sum::<u64>();
-                let idle = v[3] + v[4];
-                if let Some((t, i)) = self.cpu {
-                    let d = total.saturating_sub(t);
-                    if d > 0 {
-                        out.cpu = 100.0 * (1.0 - idle.saturating_sub(i) as f64 / d as f64);
+            let mut lines = s.lines();
+            if let Some(first) = lines.next() {
+                let v: Vec<u64> = first
+                    .split_whitespace()
+                    .skip(1)
+                    .take(8)
+                    .filter_map(|v| v.parse().ok())
+                    .collect();
+                if v.len() >= 5 {
+                    let total = v.iter().sum::<u64>();
+                    let idle = v[3] + v[4];
+                    if let Some((t, i)) = self.cpu {
+                        let d = total.saturating_sub(t);
+                        if d > 0 {
+                            out.cpu = 100.0 * (1.0 - idle.saturating_sub(i) as f64 / d as f64);
+                        }
+                    }
+                    self.cpu = Some((total, idle));
+                }
+            }
+            let mut next_core_cpu = Vec::new();
+            for l in lines {
+                let mut words = l.split_whitespace();
+                let Some(name) = words.next() else { continue; };
+                if !name.starts_with("cpu") || !name[3..].chars().all(|c| c.is_ascii_digit()) {
+                    break;
+                }
+                let v: Vec<u64> = words.take(8).filter_map(|v| v.parse().ok()).collect();
+                if v.len() >= 5 {
+                    let total = v.iter().sum::<u64>();
+                    let idle = v[3] + v[4];
+                    let core_idx = next_core_cpu.len();
+                    let pct = if let Some(&(t, i)) = self.core_cpu.get(core_idx) {
+                        let d = total.saturating_sub(t);
+                        if d > 0 {
+                            (100.0 * (1.0 - idle.saturating_sub(i) as f64 / d as f64)).clamp(0.0, 100.0)
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        0.0
+                    };
+                    out.cpu_cores.push(pct);
+                    next_core_cpu.push((total, idle));
+                }
+            }
+            self.core_cpu = next_core_cpu;
+        }
+        if let Ok(s) = fs::read_to_string("/proc/diskstats") {
+            let mut total_read_sectors = 0u64;
+            let mut total_write_sectors = 0u64;
+            for l in s.lines() {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                if f.len() > 9 {
+                    let dev = f[2];
+                    let is_physical = (dev.starts_with("sd") && dev[2..].chars().all(|c| c.is_ascii_alphabetic()))
+                        || (dev.starts_with("nvme") && dev.contains('n') && !dev.contains('p'))
+                        || (dev.starts_with("vd") && dev[2..].chars().all(|c| c.is_ascii_alphabetic()))
+                        || (dev.starts_with("mmcblk") && !dev.contains('p'));
+                    if is_physical {
+                        let r_sec: u64 = f[5].parse().unwrap_or(0);
+                        let w_sec: u64 = f[9].parse().unwrap_or(0);
+                        total_read_sectors += r_sec;
+                        total_write_sectors += w_sec;
                     }
                 }
-                self.cpu = Some((total, idle));
             }
+            let total_read_bytes = total_read_sectors * 512;
+            let total_write_bytes = total_write_sectors * 512;
+            out.disk_read_total = total_read_bytes;
+            out.disk_write_total = total_write_bytes;
+            if let Some((prev_r, prev_w)) = self.disk {
+                out.disk_read_rate = (total_read_bytes.saturating_sub(prev_r) as f64) / dt;
+                out.disk_write_rate = (total_write_bytes.saturating_sub(prev_w) as f64) / dt;
+            }
+            self.disk = Some((total_read_bytes, total_write_bytes));
         }
         if let Ok(s) = fs::read_to_string("/proc/meminfo") {
             let get = |key: &str| {
@@ -175,12 +313,21 @@ impl Sampler {
             };
             let total = get("MemTotal:");
             let used = total.saturating_sub(get("MemAvailable:"));
+            let cached = get("Cached:") + get("Buffers:");
+            let swap_total = get("SwapTotal:");
+            let swap_used = swap_total.saturating_sub(get("SwapFree:"));
+            out.memory_total = total;
+            out.memory_used = used;
+            out.memory_cached = cached;
+            out.swap_total = swap_total;
+            out.swap_used = swap_used;
             out.memory = format!(
                 "{} / {}",
                 crate::bytes(used as f64),
                 crate::bytes(total as f64)
             );
         }
+        out.filesystems = read_filesystems();
         out.processes = next.values().cloned().collect();
         self.previous = next;
         self.at = Some(now);

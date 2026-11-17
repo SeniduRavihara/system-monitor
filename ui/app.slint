@@ -1,21 +1,255 @@
 import { Button, LineEdit, ScrollView, ListView, CheckBox, Palette } from "std-widgets.slint";
-export struct ProcessRow { pid: int, name: string, parent: string, cpu: string, memory: string, download: string, upload: string, read: string, write: string, selected: bool, active: bool }
-component Cell inherits Text { color: #cbd2dd; font-size: 12px; vertical-alignment: center; overflow: elide; }
-component Metric inherits Rectangle {
-    in property <string> label;
-    in property <string> value;
-    in property <color> accent: #80baff;
-    background: #22262e; border-radius: 8px;
-    VerticalLayout { padding: 14px; spacing: 6px;
-        Text { text: root.label; color: #909bad; font-size: 11px; }
-        Text { text: root.value; color: root.accent; font-size: 22px; font-weight: 600; }
+
+export struct ProcessRow {
+    pid: int,
+    name: string,
+    parent: string,
+    cpu: string,
+    memory: string,
+    download: string,
+    upload: string,
+    read: string,
+    write: string,
+    selected: bool,
+    active: bool,
+}
+
+export struct FileSystemRow {
+    device: string,
+    dir: string,
+    fs_type: string,
+    total: string,
+    free: string,
+    avail: string,
+    used: string,
+    used_percent: float,
+}
+
+component SegmentButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> active: false;
+    callback clicked;
+    height: 32px;
+    border-radius: 6px;
+    background: root.active ? #383838 : (touch.has-hover ? #2a2a2a : transparent);
+    animate background { duration: 150ms; }
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 8px;
+        alignment: center;
+        Text {
+            text: root.icon;
+            color: root.active ? #ffffff : #9a9a9a;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.text;
+            color: root.active ? #ffffff : #c0c0c0;
+            font-size: 13px;
+            font-weight: root.active ? 600 : 500;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
     }
 }
+
+component SectionTitle inherits HorizontalLayout {
+    in property <string> title;
+    spacing: 8px;
+    height: 22px;
+    alignment: start;
+    Text {
+        text: "▾";
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 700;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.title;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 700;
+        vertical-alignment: center;
+    }
+}
+
+component GraphGrid inherits Rectangle {
+    background: #181818;
+    border-radius: 6px;
+    border-width: 1px;
+    border-color: #2e2e2e;
+    clip: true;
+
+    // Horizontal grid lines
+    Rectangle {
+        y: 0px;
+        width: 100%;
+        height: 1px;
+        background: #282828;
+    }
+    Rectangle {
+        y: parent.height * 0.5;
+        width: 100%;
+        height: 1px;
+        background: #222222;
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: #282828;
+    }
+
+    // Vertical time grid lines across full width
+    Rectangle { x: parent.width * 0.1667; width: 1px; height: 100%; background: #202020; }
+    Rectangle { x: parent.width * 0.3333; width: 1px; height: 100%; background: #202020; }
+    Rectangle { x: parent.width * 0.5000; width: 1px; height: 100%; background: #202020; }
+    Rectangle { x: parent.width * 0.6667; width: 1px; height: 100%; background: #202020; }
+    Rectangle { x: parent.width * 0.8333; width: 1px; height: 100%; background: #202020; }
+}
+
+component TimeLabels inherits Rectangle {
+    height: 16px;
+    width: 100%;
+    // Markers centered under their grid lines across full width
+    Text { x: 0; text: "1 min"; color: #808080; font-size: 10px; }
+    Text { x: parent.width * 0.1667 - self.width / 2; text: "50 secs"; color: #808080; font-size: 10px; }
+    Text { x: parent.width * 0.3333 - self.width / 2; text: "40 secs"; color: #808080; font-size: 10px; }
+    Text { x: parent.width * 0.5000 - self.width / 2; text: "30 secs"; color: #808080; font-size: 10px; }
+    Text { x: parent.width * 0.6667 - self.width / 2; text: "20 secs"; color: #808080; font-size: 10px; }
+    Text { x: parent.width * 0.8333 - self.width / 2; text: "10 secs"; color: #808080; font-size: 10px; }
+}
+
+component CpuSwatch inherits HorizontalLayout {
+    in property <color> swatch-color;
+    in property <string> label;
+    in property <string> value;
+    spacing: 8px;
+    height: 20px;
+    alignment: start;
+    Rectangle {
+        y: 3px;
+        width: 14px;
+        height: 12px;
+        border-radius: 2px;
+        background: root.swatch-color;
+    }
+    Text {
+        text: root.label;
+        color: #f0f0f0;
+        font-size: 12px;
+        font-weight: 600;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.value;
+        color: #d0d0d0;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+}
+
+component DonutGauge inherits Rectangle {
+    in property <color> ring-color: #e01b24;
+    in property <string> arc-path: "";
+    width: 32px;
+    height: 32px;
+    Path {
+        width: 32px;
+        height: 32px;
+        viewbox-width: 36;
+        viewbox-height: 36;
+        stroke: #333333;
+        stroke-width: 4.5px;
+        commands: "M 18 6 A 12 12 0 1 1 17.99 6 Z";
+    }
+    Path {
+        width: 32px;
+        height: 32px;
+        viewbox-width: 36;
+        viewbox-height: 36;
+        stroke: root.ring-color;
+        stroke-width: 4.5px;
+        commands: root.arc-path;
+    }
+}
+
+component ColumnHeader inherits Rectangle {
+    in property <string> title;
+    in property <string> subtext: "";
+    in property <bool> is-active-sort: false;
+    in property <bool> ascending: false;
+    in property <TextHorizontalAlignment> text-align: TextHorizontalAlignment.left;
+    callback clicked;
+    height: 40px;
+    background: touch.has-hover ? #2e2e2e : #222222;
+    border-radius: 4px;
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        alignment: root.text-align == TextHorizontalAlignment.right ? end : start;
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+            HorizontalLayout {
+                spacing: 4px;
+                alignment: root.text-align == TextHorizontalAlignment.right ? end : start;
+                Text {
+                    text: root.title;
+                    color: root.is-active-sort ? #ffffff : #c0c0c0;
+                    font-size: 11px;
+                    font-weight: 600;
+                    horizontal-alignment: root.text-align;
+                    overflow: elide;
+                }
+                if root.is-active-sort: Text {
+                    text: root.ascending ? "▴" : "▾";
+                    color: #ffffff;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+            }
+            if root.subtext != "": Text {
+                text: root.subtext;
+                color: root.is-active-sort ? #9fc5e8 : #8a8a8a;
+                font-size: 10px;
+                horizontal-alignment: root.text-align;
+                overflow: elide;
+            }
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
 export component Monitor inherits Window {
-    title: "System Monitor"; preferred-width: 1240px; preferred-height: 820px; min-width: 1000px; min-height: 650px;
-    background: #191c22;
-    default-font-family: "DejaVu Sans"; default-font-size: 13px;
+    title: "System Monitor";
+    preferred-width: 1024px;
+    preferred-height: 680px;
+    min-width: 760px;
+    min-height: 480px;
+    no-frame: true;
+    resize-border-width: 6px;
+    background: #1e1e1e;
+    default-font-family: "DejaVu Sans";
+    default-font-size: 13px;
     init => { Palette.color-scheme = ColorScheme.dark; }
+
+    // Navigation and tab state
+    in-out property <int> current-tab: 0; // 0 = Resources, 1 = Processes, 2 = File Systems
+    in-out property <bool> search-open: false;
+
+    // Window controls callbacks
+    callback minimize-window();
+    callback maximize-window();
+    callback close-window();
+
+    // Process table properties (preserved for backward compatibility & tests)
     in property <[ProcessRow]> rows;
     in property <string> cpu-total: "…";
     in property <string> memory-total: "…";
@@ -31,90 +265,922 @@ export component Monitor inherits Window {
     in-out property <bool> force: false;
     in property <string> selected-name;
     in property <string> result;
+
+    // Sorting state
+    in property <int> current-sort: 3; // 0=name, 1=pid, 2=cpu, 3=memory, 4=down, 5=up, 6=read, 7=write
+    in property <bool> sort-ascending: false;
+
+    // Header totals for process table columns
+    in property <string> disk-read-header-total: "—";
+    in property <string> disk-write-header-total: "—";
+
+    // CPU graph and core metrics
+    in property <string> cpu1-path: "";
+    in property <string> cpu2-path: "";
+    in property <string> cpu3-path: "";
+    in property <string> cpu4-path: "";
+    in property <string> cpu5-path: "";
+    in property <string> cpu6-path: "";
+    in property <string> cpu7-path: "";
+    in property <string> cpu8-path: "";
+    in property <string> cpu1-val: "0.0%";
+    in property <string> cpu2-val: "0.0%";
+    in property <string> cpu3-val: "0.0%";
+    in property <string> cpu4-val: "0.0%";
+    in property <string> cpu5-val: "0.0%";
+    in property <string> cpu6-val: "0.0%";
+    in property <string> cpu7-val: "0.0%";
+    in property <string> cpu8-val: "0.0%";
+
+    // Memory & Swap graph and gauges
+    in property <string> mem-path: "";
+    in property <string> swap-path: "";
+    in property <string> mem-arc: "";
+    in property <string> swap-arc: "";
+    in property <string> mem-stat-line1: "Memory";
+    in property <string> mem-stat-line2: "Cache";
+    in property <string> swap-stat-line: "Swap";
+
+    // Network graph and stats
+    in property <string> net-rx-path: "";
+    in property <string> net-tx-path: "";
+    in property <string> net-top-label: "500.0 KiB/s";
+    in property <string> net-mid-label: "250.0 KiB/s";
+    in property <string> net-rx-rate: "0 B/s";
+    in property <string> net-rx-total: "0 B";
+    in property <string> net-tx-rate: "0 B/s";
+    in property <string> net-tx-total: "0 B";
+
+    // Disk graph and stats
+    in property <string> disk-read-path: "";
+    in property <string> disk-write-path: "";
+    in property <string> disk-top-label: "200.0 MiB/s";
+    in property <string> disk-mid-label: "100.0 MiB/s";
+    in property <string> disk-read-rate: "0 B/s";
+    in property <string> disk-read-total: "0 B";
+    in property <string> disk-write-rate: "0 B/s";
+    in property <string> disk-write-total: "0 B";
+
+    // File Systems
+    in property <[FileSystemRow]> filesystems;
+
+    // Callbacks
     callback search(string);
     callback sort(int);
     callback select(int);
     callback network();
     callback end-process(bool);
     callback active-only(bool);
-    VerticalLayout { padding: 22px; spacing: 14px;
-        HorizontalLayout { height: 44px; spacing: 12px;
-            Rectangle { width: 36px; height: 36px; background: #28415d; border-radius: 9px; Text { text: "↗"; color: #a9d4ff; font-size: 25px; horizontal-alignment: center; vertical-alignment: center; } }
-            VerticalLayout { spacing: 2px;
-                Text { text: "System Monitor"; color: #f1f4fa; font-size: 21px; font-weight: 700; }
-                Text { text: "Know what’s using your connection"; color: #919bad; font-size: 12px; }
+    callback switch-tab(int);
+
+    VerticalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        // --- Single Unified Adwaita Header Bar (CSD - No second line) ---
+        Rectangle {
+            height: 48px;
+            background: #242424;
+
+            // Allows dragging the window across the header bar
+            WindowMoveArea {
+                width: 100%;
+                height: 100%;
             }
-            Rectangle { horizontal-stretch: 1; }
-            Button { text: root.network-running ? "Network monitoring enabled" : "Enable network monitoring"; enabled: !root.network-running; clicked => {root.network();} }
-        }
-        HorizontalLayout { height: 88px; spacing: 12px;
-            Metric { label: "CPU • ALL CORES"; value: root.cpu-total; }
-            Metric { label: "MEMORY • USED / TOTAL"; value: root.memory-total; accent: #d5c1ff; horizontal-stretch: 1.5; }
-            Metric { label: "↓ DOWNLOAD • SHOWN ROWS"; value: root.download-total; accent: #73dcc4; }
-            Metric { label: "↑ UPLOAD • SHOWN ROWS"; value: root.upload-total; accent: #8dbdff; }
-        }
-        Text { text: root.interface-totals; height: 18px; color: #929eaf; font-size: 11px; }
-        Rectangle { height: 48px; background: #222b38; border-radius: 6px;
-            Text { x: 12px; width: parent.width - 24px; height: parent.height; text: root.status; color: #b8cce6; font-size: 12px; vertical-alignment: center; wrap: word-wrap; }
-        }
-        HorizontalLayout { height: 34px; spacing: 12px;
-            LineEdit { placeholder-text: "Search name, PID, parent or command…"; edited(text) => {root.search(text);} horizontal-stretch: 1; }
-            CheckBox { text: "Network active only"; toggled => {root.active-only(self.checked);} }
-            Text { text: root.summary; color: #929eaf; vertical-alignment: center; }
-        }
-        Rectangle { background: #1e2229; border-radius: 6px; vertical-stretch: 1;
-            VerticalLayout { padding: 1px; spacing: 0px;
-                HorizontalLayout { height: 38px; padding-left: 8px; padding-right: 8px; spacing: 8px;
-                    Button { text: "Process"; horizontal-stretch: 1; clicked => {root.sort(0);} }
-                    Button { text: "PID"; width: 74px; clicked => {root.sort(1);} }
-                    Button { text: "CPU"; width: 68px; clicked => {root.sort(2);} }
-                    Button { text: "Memory"; width: 100px; clicked => {root.sort(3);} }
-                    Button { text: "↓ Download"; width: 112px; clicked => {root.sort(4);} }
-                    Button { text: "↑ Upload"; width: 112px; clicked => {root.sort(5);} }
-                    Button { text: "Disk read"; width: 100px; clicked => {root.sort(6);} }
-                    Button { text: "Disk write"; width: 100px; clicked => {root.sort(7);} }
-                }
-                ListView { content-width: self.visible-width;
-                        for row in root.rows: Rectangle {
-                            height: 38px; background: row.selected ? #293e58 : (touch.has-hover ? #282e38 : #1e2229);
-                            HorizontalLayout { padding-left: 12px; padding-right: 8px; spacing: 8px;
-                                VerticalLayout { horizontal-stretch: 1; spacing: 0px; padding-top: 4px; padding-bottom: 4px;
-                                    Cell { text: row.name; color: row.selected ? #ffffff : #e1e6ee; }
-                                    Cell { text: row.parent; color: #7e8c9f; font-size: 10px; }
-                                }
-                                Cell { text: row.pid; width: 74px; }
-                                Cell { text: row.cpu; width: 68px; }
-                                Cell { text: row.memory; width: 100px; }
-                                Cell { text: row.download; width: 112px; color: row.active ? #79e3c9 : #8996a8; }
-                                Cell { text: row.upload; width: 112px; color: row.active ? #9bc7ff : #8996a8; }
-                                Cell { text: row.read; width: 100px; }
-                                Cell { text: row.write; width: 100px; }
-                            }
-                            touch := TouchArea { clicked => {root.select(row.pid);} }
+
+            Rectangle {
+                y: parent.height - 1px;
+                width: 100%;
+                height: 1px;
+                background: #303030;
+            }
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                height: 100%;
+                cross-axis-alignment: center;
+
+                // Left: Search toggle button (pinned to far left, vertically centered)
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    alignment: start;
+                    cross-axis-alignment: center;
+
+                    Rectangle {
+                        width: 34px;
+                        height: 34px;
+                        border-radius: 6px;
+                        background: root.search-open ? #383838 : (search-touch.has-hover ? #2e2e2e : transparent);
+                        Text {
+                            text: "🔍";
+                            font-size: 13px;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
                         }
+                        search-touch := TouchArea {
+                            clicked => {
+                                root.search-open = !root.search-open;
+                                if root.search-open && root.current-tab != 1 {
+                                    root.current-tab = 1;
+                                    root.switch-tab(1);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Center: Segmented Tab Switcher (Resources, Processes, File Systems)
+                Rectangle {
+                    height: 36px;
+                    background: #181818;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #303030;
+                    HorizontalLayout {
+                        padding: 2px;
+                        spacing: 2px;
+                        cross-axis-alignment: center;
+                        SegmentButton {
+                            icon: "⏱";
+                            text: "Resources";
+                            active: root.current-tab == 0;
+                            clicked => { root.current-tab = 0; root.switch-tab(0); }
+                        }
+                        SegmentButton {
+                            icon: "▶";
+                            text: "Processes";
+                            active: root.current-tab == 1;
+                            clicked => { root.current-tab = 1; root.switch-tab(1); }
+                        }
+                        SegmentButton {
+                            icon: "🗄";
+                            text: "File Systems";
+                            active: root.current-tab == 2;
+                            clicked => { root.current-tab = 2; root.switch-tab(2); }
+                        }
+                    }
+                }
+
+                // Right: Hamburger menu and unified window controls (pinned to far right, vertically centered)
+                HorizontalLayout {
+                    horizontal-stretch: 1;
+                    alignment: end;
+                    cross-axis-alignment: center;
+                    spacing: 12px;
+
+                    // Hamburger menu button
+                    Rectangle {
+                        width: 34px;
+                        height: 34px;
+                        border-radius: 6px;
+                        background: menu-touch.has-hover ? #2e2e2e : transparent;
+                        Text {
+                            text: "☰";
+                            font-size: 15px;
+                            color: #ffffff;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        menu-touch := TouchArea {}
+                    }
+
+                    // Window controls (Minimize, Maximize, Close)
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: center;
+                        cross-axis-alignment: center;
+
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 12px;
+                            background: min-touch.has-hover ? #484848 : #343434;
+                            Text {
+                                text: "−";
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: #e0e0e0;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            min-touch := TouchArea { clicked => { root.minimize-window(); } }
+                        }
+
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 12px;
+                            background: max-touch.has-hover ? #484848 : #343434;
+                            Text {
+                                text: "▢";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #e0e0e0;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            max-touch := TouchArea { clicked => { root.maximize-window(); } }
+                        }
+
+                        Rectangle {
+                            width: 24px;
+                            height: 24px;
+                            border-radius: 12px;
+                            background: close-touch.has-hover ? #c01c28 : #343434;
+                            Text {
+                                text: "✕";
+                                font-size: 11px;
+                                font-weight: 700;
+                                color: #ffffff;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            close-touch := TouchArea { clicked => { root.close-window(); } }
+                        }
+                    }
                 }
             }
         }
-        Rectangle { height: 100px; background: #22262e; border-radius: 6px;
-            ScrollView { x: 12px; y: 10px; width: parent.width - 24px; height: parent.height - 20px;
-                Text { width: parent.width; text: root.details; color: #abb8ca; font-size: 12px; wrap: word-wrap; }
+
+        // --- Main Content Area ---
+        Rectangle {
+            vertical-stretch: 1;
+            background: #1e1e1e;
+
+            // ==========================================
+            // TAB 0: RESOURCES VIEW (Matching Image 0)
+            // ==========================================
+            if root.current-tab == 0: ScrollView {
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 16px;
+
+                    // 1. CPU Section
+                    VerticalLayout {
+                        spacing: 8px;
+                        SectionTitle { title: "CPU"; }
+                        Rectangle {
+                            height: 110px;
+                            clip: true;
+                            border-radius: 6px;
+                            GraphGrid {}
+                            // 8 CPU Line Paths spanning full width
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #e01b24; stroke-width: 1.8px; commands: root.cpu1-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.cpu2-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #f6d32d; stroke-width: 1.8px; commands: root.cpu3-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #57e389; stroke-width: 1.8px; commands: root.cpu4-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #26a269; stroke-width: 1.8px; commands: root.cpu5-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #62a0ea; stroke-width: 1.8px; commands: root.cpu6-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.cpu7-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #9141ac; stroke-width: 1.8px; commands: root.cpu8-path; }
+                            // Y-axis labels overlaid inside the right edge
+                            Text { x: parent.width - self.width - 8px; y: 2px; text: "100 %"; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 48px; text: "50 %"; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 %"; color: #808080; font-size: 10px; }
+                        }
+                        TimeLabels {}
+                        // 8 CPU Legend Swatches (4 equal columns spanning the full width)
+                        HorizontalLayout {
+                            spacing: 16px;
+                            padding-top: 4px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 6px;
+                                CpuSwatch { swatch-color: #e01b24; label: "CPU1"; value: root.cpu1-val; }
+                                CpuSwatch { swatch-color: #ff7800; label: "CPU2"; value: root.cpu2-val; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 6px;
+                                CpuSwatch { swatch-color: #f6d32d; label: "CPU3"; value: root.cpu3-val; }
+                                CpuSwatch { swatch-color: #57e389; label: "CPU4"; value: root.cpu4-val; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 6px;
+                                CpuSwatch { swatch-color: #26a269; label: "CPU5"; value: root.cpu5-val; }
+                                CpuSwatch { swatch-color: #62a0ea; label: "CPU6"; value: root.cpu6-val; }
+                            }
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 6px;
+                                CpuSwatch { swatch-color: #1c71d8; label: "CPU7"; value: root.cpu7-val; }
+                                CpuSwatch { swatch-color: #9141ac; label: "CPU8"; value: root.cpu8-val; }
+                            }
+                        }
+                    }
+
+                    // 2. Memory and Swap Section
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-top: 6px;
+                        SectionTitle { title: "Memory and Swap"; }
+                        Rectangle {
+                            height: 110px;
+                            clip: true;
+                            border-radius: 6px;
+                            GraphGrid {}
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #e01b24; stroke-width: 1.8px; commands: root.mem-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #26a269; stroke-width: 1.8px; commands: root.swap-path; }
+                            Text { x: parent.width - self.width - 8px; y: 2px; text: "100 %"; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 48px; text: "50 %"; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 %"; color: #808080; font-size: 10px; }
+                        }
+                        TimeLabels {}
+                        // Memory and Swap Gauges + Stats (2 equal columns)
+                        HorizontalLayout {
+                            spacing: 32px;
+                            padding-top: 6px;
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 14px;
+                                alignment: start;
+                                DonutGauge { ring-color: #e01b24; arc-path: root.mem-arc; }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text { text: "Memory"; color: #ffffff; font-size: 14px; font-weight: 600; }
+                                    Text { text: root.mem-stat-line1; color: #d0d0d0; font-size: 13px; }
+                                    Text { text: root.mem-stat-line2; color: #9a9a9a; font-size: 12px; }
+                                }
+                            }
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 14px;
+                                alignment: start;
+                                DonutGauge { ring-color: #26a269; arc-path: root.swap-arc; }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    Text { text: "Swap"; color: #ffffff; font-size: 14px; font-weight: 600; }
+                                    Text { text: root.swap-stat-line; color: #d0d0d0; font-size: 13px; }
+                                }
+                            }
+                        }
+                    }
+
+                    // 3. Network Section
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-top: 6px;
+                        SectionTitle { title: "Network"; }
+                        Rectangle {
+                            height: 110px;
+                            clip: true;
+                            border-radius: 6px;
+                            GraphGrid {}
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.net-rx-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.net-tx-path; }
+                            Text { x: parent.width - self.width - 8px; y: 2px; text: root.net-top-label; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 48px; text: root.net-mid-label; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 B/s"; color: #808080; font-size: 10px; }
+                        }
+                        TimeLabels {}
+                        // Receiving and Sending Stats (2 equal columns)
+                        HorizontalLayout {
+                            spacing: 32px;
+                            padding-top: 6px;
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 14px;
+                                alignment: start;
+                                Text { text: "⬇"; font-size: 26px; color: #3584e4; vertical-alignment: center; }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Receiving"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                        Text { text: root.net-rx-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Total Received"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                        Text { text: root.net-rx-total; color: #d0d0d0; font-size: 12px; }
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 14px;
+                                alignment: start;
+                                Text { text: "⬆"; font-size: 26px; color: #ff7800; vertical-alignment: center; }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Sending"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                        Text { text: root.net-tx-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Total Sent"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                        Text { text: root.net-tx-total; color: #d0d0d0; font-size: 12px; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Disk Section
+                    VerticalLayout {
+                        spacing: 8px;
+                        padding-top: 6px;
+                        SectionTitle { title: "Disk"; }
+                        Rectangle {
+                            height: 110px;
+                            clip: true;
+                            border-radius: 6px;
+                            GraphGrid {}
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.disk-read-path; }
+                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.disk-write-path; }
+                            Text { x: parent.width - self.width - 8px; y: 2px; text: root.disk-top-label; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 48px; text: root.disk-mid-label; color: #808080; font-size: 10px; }
+                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 B/s"; color: #808080; font-size: 10px; }
+                        }
+                        TimeLabels {}
+                        // Reading and Writing Stats (2 equal columns)
+                        HorizontalLayout {
+                            spacing: 32px;
+                            padding-top: 6px;
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 14px;
+                                alignment: start;
+                                Text { text: "⬆"; font-size: 26px; color: #3584e4; vertical-alignment: center; }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Reading"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                        Text { text: root.disk-read-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Total Read"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                        Text { text: root.disk-read-total; color: #d0d0d0; font-size: 12px; }
+                                    }
+                                }
+                            }
+                            HorizontalLayout {
+                                horizontal-stretch: 1;
+                                spacing: 14px;
+                                alignment: start;
+                                Text { text: "⬇"; font-size: 26px; color: #ff7800; vertical-alignment: center; }
+                                VerticalLayout {
+                                    spacing: 2px;
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Writing"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                        Text { text: root.disk-write-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                    }
+                                    HorizontalLayout {
+                                        spacing: 12px;
+                                        Text { text: "Total Written"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                        Text { text: root.disk-write-total; color: #d0d0d0; font-size: 12px; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
-        HorizontalLayout { height: 35px; spacing: 12px;
-            Button { text: "End process…"; enabled: root.can-end; clicked => {root.force=false;root.confirm=true;} }
-            Button { text: "Force quit…"; enabled: root.can-end; clicked => {root.force=true;root.confirm=true;} }
-            Text { text: root.result; color: #dbbd91; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
-            Text { text: "Updates every second"; color: #788598; vertical-alignment: center; font-size: 11px; }
+
+            // ==========================================
+            // TAB 1: PROCESSES VIEW (Matching Image 1)
+            // ==========================================
+            if root.current-tab == 1: VerticalLayout {
+                padding: 12px;
+                spacing: 6px;
+
+                // Search / Filter row (revealed when search is open)
+                if root.search-open: HorizontalLayout {
+                    height: 34px;
+                    spacing: 10px;
+                    LineEdit {
+                        placeholder-text: "Search name, PID, parent or command…";
+                        edited(text) => { root.search(text); }
+                        horizontal-stretch: 1;
+                    }
+                    CheckBox {
+                        text: "Network active only";
+                        toggled => { root.active-only(self.checked); }
+                    }
+                    Button {
+                        text: root.network-running ? "Network monitoring active" : "Enable network monitoring";
+                        enabled: !root.network-running;
+                        clicked => { root.network(); }
+                    }
+                    Text {
+                        text: root.summary;
+                        color: #929eaf;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Table Header Bar (matching Image 1 headers with aggregate stats)
+                // Exactly matched padding, spacing, and column widths with the rows below
+                HorizontalLayout {
+                    height: 40px;
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    spacing: 6px;
+                    ColumnHeader {
+                        title: "Name";
+                        is-active-sort: root.current-sort == 0;
+                        ascending: root.sort-ascending;
+                        horizontal-stretch: 1;
+                        clicked => { root.sort(0); }
+                    }
+                    ColumnHeader {
+                        title: "ID";
+                        text-align: right;
+                        is-active-sort: root.current-sort == 1;
+                        ascending: root.sort-ascending;
+                        width: 80px;
+                        clicked => { root.sort(1); }
+                    }
+                    ColumnHeader {
+                        title: "CPU";
+                        text-align: right;
+                        subtext: root.cpu-total;
+                        is-active-sort: root.current-sort == 2;
+                        ascending: root.sort-ascending;
+                        width: 80px;
+                        clicked => { root.sort(2); }
+                    }
+                    ColumnHeader {
+                        title: "Memory";
+                        text-align: right;
+                        subtext: root.memory-total;
+                        is-active-sort: root.current-sort == 3;
+                        ascending: root.sort-ascending;
+                        width: 100px;
+                        clicked => { root.sort(3); }
+                    }
+                    ColumnHeader {
+                        title: "Disk Read";
+                        text-align: right;
+                        subtext: root.disk-read-header-total;
+                        is-active-sort: root.current-sort == 6;
+                        ascending: root.sort-ascending;
+                        width: 110px;
+                        clicked => { root.sort(6); }
+                    }
+                    ColumnHeader {
+                        title: "Disk Write";
+                        text-align: right;
+                        subtext: root.disk-write-header-total;
+                        is-active-sort: root.current-sort == 7;
+                        ascending: root.sort-ascending;
+                        width: 110px;
+                        clicked => { root.sort(7); }
+                    }
+                    ColumnHeader {
+                        title: "↓ Download";
+                        text-align: right;
+                        subtext: root.download-total;
+                        is-active-sort: root.current-sort == 4;
+                        ascending: root.sort-ascending;
+                        width: 110px;
+                        clicked => { root.sort(4); }
+                    }
+                    ColumnHeader {
+                        title: "↑ Upload";
+                        text-align: right;
+                        subtext: root.upload-total;
+                        is-active-sort: root.current-sort == 5;
+                        ascending: root.sort-ascending;
+                        width: 110px;
+                        clicked => { root.sort(5); }
+                    }
+                }
+
+                // Process Rows List
+                Rectangle {
+                    background: #181818;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #2b2b2b;
+                    vertical-stretch: 1;
+
+                    ListView {
+                        content-width: self.visible-width;
+                        for row in root.rows: Rectangle {
+                            height: 32px;
+                            background: row.selected ? #1c71d8 : (touch.has-hover ? #252525 : transparent);
+                            // Subtle separator line
+                            Rectangle {
+                                y: parent.height - 1px;
+                                width: 100%;
+                                height: 1px;
+                                background: #262626;
+                            }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 6px;
+
+                                // Column 0: Icon + Process Name (stretches to fill)
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 8px;
+                                    alignment: start;
+                                    Text {
+                                        text: "◆";
+                                        color: row.selected ? #ffffff : #3584e4;
+                                        font-size: 11px;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: row.name;
+                                        color: row.selected ? #ffffff : #e8e8e8;
+                                        font-size: 12px;
+                                        font-weight: 500;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                // Column 1: ID (PID)
+                                Text {
+                                    text: row.pid;
+                                    width: 80px;
+                                    color: row.selected ? #ffffff : #c0c0c0;
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                // Column 2: CPU %
+                                Text {
+                                    text: row.cpu;
+                                    width: 80px;
+                                    color: row.selected ? #ffffff : #c0c0c0;
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                // Column 3: Memory
+                                Text {
+                                    text: row.memory;
+                                    width: 100px;
+                                    color: row.selected ? #ffffff : #c0c0c0;
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                // Column 4: Disk Read
+                                Text {
+                                    text: row.read;
+                                    width: 110px;
+                                    color: row.selected ? #ffffff : #c0c0c0;
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                // Column 5: Disk Write
+                                Text {
+                                    text: row.write;
+                                    width: 110px;
+                                    color: row.selected ? #ffffff : #c0c0c0;
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                // Column 6: Download
+                                Text {
+                                    text: row.download;
+                                    width: 110px;
+                                    color: row.selected ? #ffffff : (row.active ? #57e389 : #808080);
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+
+                                // Column 7: Upload
+                                Text {
+                                    text: row.upload;
+                                    width: 110px;
+                                    color: row.selected ? #ffffff : (row.active ? #62a0ea : #808080);
+                                    font-size: 12px;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+                            touch := TouchArea { clicked => { root.select(row.pid); } }
+                        }
+                    }
+                }
+
+                // Process Details Drawer
+                Rectangle {
+                    height: 70px;
+                    background: #242424;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #303030;
+                    ScrollView {
+                        x: 10px;
+                        y: 8px;
+                        width: parent.width - 20px;
+                        height: parent.height - 16px;
+                        Text {
+                            width: parent.width;
+                            text: root.details;
+                            color: #c0c0c0;
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                // Bottom Action & Status Bar
+                HorizontalLayout {
+                    height: 34px;
+                    spacing: 10px;
+                    Button {
+                        text: "End process…";
+                        enabled: root.can-end;
+                        clicked => { root.force = false; root.confirm = true; }
+                    }
+                    Button {
+                        text: "Force quit…";
+                        enabled: root.can-end;
+                        clicked => { root.force = true; root.confirm = true; }
+                    }
+                    Text {
+                        text: root.result;
+                        color: #f6d32d;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: root.summary;
+                        color: #888888;
+                        vertical-alignment: center;
+                        font-size: 11px;
+                    }
+                    Text {
+                        text: "Updates every second";
+                        color: #666666;
+                        vertical-alignment: center;
+                        font-size: 11px;
+                    }
+                }
+            }
+
+            // ==========================================
+            // TAB 2: FILE SYSTEMS VIEW
+            // ==========================================
+            if root.current-tab == 2: VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+
+                // Header
+                Rectangle {
+                    height: 36px;
+                    background: #242424;
+                    border-radius: 4px;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        Text { text: "Device"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 180px; vertical-alignment: center; }
+                        Text { text: "Directory"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 160px; vertical-alignment: center; }
+                        Text { text: "Type"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 80px; vertical-alignment: center; }
+                        Text { text: "Total"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: "Free"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: "Available"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                        Text { text: "Used"; color: #c0c0c0; font-size: 12px; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
+                    }
+                }
+
+                // File Systems List
+                Rectangle {
+                    background: #181818;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #2b2b2b;
+                    vertical-stretch: 1;
+
+                    ListView {
+                        content-width: self.visible-width;
+                        for fs in root.filesystems: Rectangle {
+                            height: 38px;
+                            background: fs-touch.has-hover ? #252525 : transparent;
+                            Rectangle {
+                                y: parent.height - 1px;
+                                width: 100%;
+                                height: 1px;
+                                background: #262626;
+                            }
+                            HorizontalLayout {
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 8px;
+
+                                Text { text: fs.device; color: #ffffff; font-size: 12px; font-weight: 500; width: 180px; overflow: elide; vertical-alignment: center; }
+                                Text { text: fs.dir; color: #d0d0d0; font-size: 12px; width: 160px; overflow: elide; vertical-alignment: center; }
+                                Text { text: fs.fs_type; color: #9a9a9a; font-size: 12px; width: 80px; vertical-alignment: center; }
+                                Text { text: fs.total; color: #d0d0d0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: fs.free; color: #a0a0a0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: fs.avail; color: #a0a0a0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 10px;
+                                    alignment: start;
+                                    Rectangle {
+                                        y: (parent.height - self.height) / 2;
+                                        width: 140px;
+                                        height: 10px;
+                                        background: #333333;
+                                        border-radius: 5px;
+                                        Rectangle {
+                                            x: 0;
+                                            width: parent.width * clamp(fs.used_percent / 100.0, 0.0, 1.0);
+                                            height: parent.height;
+                                            background: fs.used_percent > 90.0 ? #e01b24 : (fs.used_percent > 75.0 ? #ff7800 : #3584e4);
+                                            border-radius: 5px;
+                                        }
+                                    }
+                                    Text {
+                                        text: fs.used;
+                                        color: #e0e0e0;
+                                        font-size: 12px;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                            fs-touch := TouchArea {}
+                        }
+                    }
+                }
+            }
         }
     }
-    if root.confirm: Rectangle { background: #000000b0;
+
+    // Modal Confirmation Dialog
+    if root.confirm: Rectangle {
+        background: #000000b0;
         TouchArea {}
-        Rectangle { width: 480px; height: 210px; x: (parent.width - self.width)/2; y: (parent.height - self.height)/2; background: #292e38; border-radius: 10px;
-            VerticalLayout { padding: 24px; spacing: 16px;
-                Text { text: root.force ? "Force quit this process?" : "End this process?"; color: #ffffff; font-size: 20px; font-weight: 600; }
-                Text { text: root.selected-name; color: #a8caff; overflow: elide; }
-                Text { text: root.force ? "Stops immediately. Unsaved work may be lost." : "Requests the process to exit. Unsaved work may be lost."; color: #c4cbd5; wrap: word-wrap; }
-                HorizontalLayout { Rectangle {} Button { text: "Cancel"; clicked => {root.confirm=false;} } Button { text: root.force ? "Force quit" : "End process"; clicked => {root.end-process(root.force);root.confirm=false;} } }
+        Rectangle {
+            width: 480px;
+            height: 210px;
+            x: (parent.width - self.width)/2;
+            y: (parent.height - self.height)/2;
+            background: #282828;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #383838;
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                Text {
+                    text: root.force ? "Force quit this process?" : "End this process?";
+                    color: #ffffff;
+                    font-size: 19px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: root.selected-name;
+                    color: #62a0ea;
+                    font-size: 13px;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.force ? "Stops immediately. Unsaved work may be lost." : "Requests the process to exit cleanly. Unsaved work may be lost.";
+                    color: #c4cbd5;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 10px;
+                    Button {
+                        text: "Cancel";
+                        clicked => { root.confirm = false; }
+                    }
+                    Button {
+                        text: root.force ? "Force quit" : "End process";
+                        clicked => {
+                            root.end-process(root.force);
+                            root.confirm = false;
+                        }
+                    }
+                }
             }
         }
     }
