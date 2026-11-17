@@ -35,6 +35,24 @@ pub fn nethogs_path() -> Option<&'static str> {
         .into_iter()
         .find(|p| Path::new(p).is_file())
 }
+
+pub fn nethogs_has_caps() -> bool {
+    let path = match nethogs_path() {
+        Some(p) => p,
+        None => return false,
+    };
+    for bin in ["/usr/bin/getcap", "/usr/sbin/getcap", "getcap"] {
+        if let Ok(output) = Command::new(bin).arg(path).output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                if text.contains("cap_net_raw") || text.contains("cap_net_admin") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 #[derive(Default)]
 pub struct Network {
     pub rows: HashMap<u32, Traffic>,
@@ -66,26 +84,42 @@ impl Drop for Capture {
     }
 }
 pub fn start(state: Arc<Mutex<Network>>) -> io::Result<Capture> {
-    if nethogs_path().is_none() {
-        return Err(io::Error::other(
+    let n_path = nethogs_path().ok_or_else(|| {
+        io::Error::other(
             "NetHogs is missing. Install it with: sudo dnf install nethogs (Fedora) or sudo apt install nethogs (Ubuntu).",
-        ));
-    }
-    let mut child = Command::new("/usr/bin/pkexec")
-        .arg(std::env::current_exe()?)
-        .arg("--collector")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+        )
+    })?;
+
+    let use_caps = nethogs_has_caps();
+    let mut child = if use_caps {
+        Command::new(n_path)
+            .args(["-t", "-d", "1", "-v", "0"])
+            .env("LC_ALL", "C")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    } else {
+        Command::new("/usr/bin/pkexec")
+            .arg(std::env::current_exe()?)
+            .arg("--collector")
+            .env("LC_ALL", "C")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    };
     let input = child.stdin.take();
     let output = child.stdout.take().unwrap();
     let errors = child.stderr.take().unwrap();
     {
         let mut s = state.lock().unwrap();
         s.running = true;
-        s.status = "Waiting for administrator authorization…".into();
+        s.status = if use_caps {
+            "Live network • measured by NetHogs (direct)".into()
+        } else {
+            "Waiting for administrator authorization…".into()
+        };
         s.updated = None;
         s.rows.clear();
     }

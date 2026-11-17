@@ -185,9 +185,14 @@ fn render_monitor_and_confirmation() {
     let s_res = ui.window().take_snapshot().unwrap();
     save_image("preview-resources.png", &s_res);
 
-    // 2. Processes tab (Tab 1) - Matches Image 1
+    // 2. Processes tab (Tab 1)
     ui.set_current_tab(1);
     ui.set_confirm(false);
+    ui.set_network_running(false);
+    let s_proc_off = ui.window().take_snapshot().unwrap();
+    save_image("preview-processes-prompt.png", &s_proc_off);
+
+    ui.set_network_running(true);
     let s_proc = ui.window().take_snapshot().unwrap();
     save_image("preview.png", &s_proc);
     save_image("preview-processes.png", &s_proc);

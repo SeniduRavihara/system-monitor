@@ -272,31 +272,17 @@ fn refresh(ui: &Monitor, snapshot: &Snapshot, net: &Network, v: &mut View) {
     ui.set_current_sort(v.sort);
     ui.set_sort_ascending(v.ascending);
     let total_count = list.len();
-    let display_limit = if total_count <= 100 { total_count } else { 100 };
-    if total_count <= 100 {
-        ui.set_summary(
-            format!(
-                "{} rows • {} {}",
-                total_count,
-                sort_name,
-                if v.ascending { "↑" } else { "↓" }
-            )
-            .into(),
-        );
-    } else {
-        ui.set_summary(
-            format!(
-                "Showing 100 of {} rows • {} {}",
-                total_count,
-                sort_name,
-                if v.ascending { "↑" } else { "↓" }
-            )
-            .into(),
-        );
-    }
+    ui.set_summary(
+        format!(
+            "{} rows • {} {}",
+            total_count,
+            sort_name,
+            if v.ascending { "↑" } else { "↓" }
+        )
+        .into(),
+    );
     let rows: Vec<_> = list
         .into_iter()
-        .take(display_limit)
         .map(|p| {
             let t = traffic(p.pid);
             let known = snapshot.processes.iter().any(|known| known.pid == p.pid);
@@ -423,6 +409,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     }));
     let capture = Rc::new(RefCell::new(None));
+
+    // If NetHogs has Linux capabilities, auto-start network monitoring without password prompt!
+    if network::nethogs_has_caps() {
+        match network::start(net.clone()) {
+            Ok(child) => *capture.borrow_mut() = Some(child),
+            Err(e) => net.lock().unwrap().status = e.to_string(),
+        }
+    }
     let stop = Arc::new(AtomicBool::new(false));
     let s = stop.clone();
     let data = latest.clone();

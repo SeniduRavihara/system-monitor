@@ -777,6 +777,39 @@ export component Monitor inherits Window {
                     }
                 }
 
+                // Dedicated Network Monitoring Banner (shown when monitoring is off)
+                if !root.network-running: Rectangle {
+                    height: 40px;
+                    background: #182230;
+                    border-radius: 6px;
+                    border-width: 1px;
+                    border-color: #264366;
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 10px;
+                        cross-axis-alignment: center;
+                        Text {
+                            text: "🔒";
+                            font-size: 14px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.status != "" ? root.status : "Network monitoring is off. Administrator authorization is needed for per-process traffic.";
+                            color: #9fc5e8;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            overflow: elide;
+                        }
+                        Button {
+                            text: "Enable Network Monitoring…";
+                            primary: true;
+                            clicked => { root.network(); }
+                        }
+                    }
+                }
+
                 // Table Header Bar (matching Image 1 headers with aggregate stats)
                 // Exactly matched padding, spacing, and column widths with the rows below
                 HorizontalLayout {
@@ -842,7 +875,12 @@ export component Monitor inherits Window {
                         is-active-sort: root.current-sort == 4;
                         ascending: root.sort-ascending;
                         width: 110px;
-                        clicked => { root.sort(4); }
+                        clicked => {
+                            root.sort(4);
+                            if !root.network-running {
+                                root.network();
+                            }
+                        }
                     }
                     ColumnHeader {
                         title: "↑ Upload";
@@ -851,7 +889,12 @@ export component Monitor inherits Window {
                         is-active-sort: root.current-sort == 5;
                         ascending: root.sort-ascending;
                         width: 110px;
-                        clicked => { root.sort(5); }
+                        clicked => {
+                            root.sort(5);
+                            if !root.network-running {
+                                root.network();
+                            }
+                        }
                     }
                 }
 
@@ -1009,6 +1052,7 @@ export component Monitor inherits Window {
                 HorizontalLayout {
                     height: 34px;
                     spacing: 10px;
+                    cross-axis-alignment: center;
                     Button {
                         text: "End process…";
                         enabled: root.can-end;
@@ -1018,6 +1062,11 @@ export component Monitor inherits Window {
                         text: "Force quit…";
                         enabled: root.can-end;
                         clicked => { root.force = true; root.confirm = true; }
+                    }
+                    Button {
+                        text: root.network-running ? "Network monitoring enabled" : "Enable network monitoring";
+                        enabled: !root.network-running;
+                        clicked => { root.network(); }
                     }
                     Text {
                         text: root.result;
