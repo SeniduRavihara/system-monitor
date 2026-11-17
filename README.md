@@ -14,8 +14,10 @@ cargo build --locked
 cargo run --locked
 ```
 
-Network monitoring requires NetHogs and PolicyKit (`pkexec`). Run
-`./setup-network.sh` to install NetHogs through your desktop authorization dialog.
+Network monitoring requires NetHogs. For passwordless monitoring without repeated authentication prompts, run:
+`sudo ./scripts/setup-passwordless.sh`
+
+Alternatively, run `./scripts/setup-network.sh` to install NetHogs through your desktop authorization dialog.
 Alternatively, on this Fedora host:
 
 ```sh
@@ -99,7 +101,7 @@ cargo clippy --locked --all-targets -- -D warnings
 The tests cover process identity, real `/proc` reads, safe termination of a
 disposable child, network parsing/units, stale data, and software-rendered desktop
 layouts at 1240×820 and 1000×650, including the confirmation dialog.
-`preview.png` uses clearly labelled sample data; it is not a recording of your traffic.
+`assets/screenshots/preview.png` uses clearly labelled sample data; it is not a recording of your traffic.
 
 For a live capture check after installing NetHogs: enable monitoring, start a known
 download, confirm that its process receives traffic, end that disposable process,

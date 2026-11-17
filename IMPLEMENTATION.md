@@ -252,4 +252,6 @@ All 14 tests pass cleanly via `cargo test --locked`.
 - [src/config.rs](file:///home/senu/PROJECTS/system-monitor/src/config.rs): Window size, position, and tab persistence.
 - [src/lib.rs](file:///home/senu/PROJECTS/system-monitor/src/lib.rs): Unit formatting and vector SVG path generation.
 - [scripts/setup-passwordless.sh](file:///home/senu/PROJECTS/system-monitor/scripts/setup-passwordless.sh): One-step configuration script for capabilities and Polkit.
+- [scripts/setup-network.sh](file:///home/senu/PROJECTS/system-monitor/scripts/setup-network.sh): Package manager installer for NetHogs.
+- [assets/screenshots/](file:///home/senu/PROJECTS/system-monitor/assets/screenshots): UI snapshots and preview images.
 - [bin/system-monitor](file:///home/senu/PROJECTS/system-monitor/bin/system-monitor): Compiled release binary.

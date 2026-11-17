@@ -166,9 +166,15 @@ fn render_monitor_and_confirmation() {
     ui.show().unwrap();
 
     let save_image = |name: &str, s: &slint::SharedPixelBuffer<slint::Rgba8Pixel>| {
-        if let Some(dir) = std::env::var_os("MONITOR_SCREENSHOT_DIR") {
+        if let Some(dir_val) = std::env::var_os("MONITOR_SCREENSHOT_DIR") {
+            let dir = if dir_val == "1" || dir_val == "true" {
+                std::path::PathBuf::from("assets/screenshots")
+            } else {
+                std::path::PathBuf::from(dir_val)
+            };
+            let _ = std::fs::create_dir_all(&dir);
             image::save_buffer(
-                std::path::Path::new(&dir).join(name),
+                dir.join(name),
                 s.as_bytes(),
                 s.width(),
                 s.height(),
