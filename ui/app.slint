@@ -12,6 +12,13 @@ export struct ProcessRow {
     write: string,
     selected: bool,
     active: bool,
+    is-group: bool,
+    is-expanded: bool,
+    is-child: bool,
+    group-name: string,
+    count: int,
+    is-section: bool,
+    section-id: string,
 }
 
 export struct FileSystemRow {
@@ -332,6 +339,10 @@ export component Monitor inherits Window {
     callback end-process(bool);
     callback active-only(bool);
     callback switch-tab(int);
+    callback toggle-group(string);
+    callback toggle-group-mode();
+    callback toggle-section(string);
+    in-out property <bool> group-by-app: true;
 
     VerticalLayout {
         padding: 0px;
@@ -770,6 +781,10 @@ export component Monitor inherits Window {
                         enabled: !root.network-running;
                         clicked => { root.network(); }
                     }
+                    Button {
+                        text: root.group-by-app ? "🗂 Grouped" : "≡ Flat";
+                        clicked => { root.toggle-group-mode(); }
+                    }
                     Text {
                         text: root.summary;
                         color: #929eaf;
@@ -810,218 +825,368 @@ export component Monitor inherits Window {
                     }
                 }
 
-                // Table Header Bar (matching Image 1 headers with aggregate stats)
-                // Exactly matched padding, spacing, and column widths with the rows below
-                HorizontalLayout {
-                    height: 40px;
-                    padding-left: 12px;
-                    padding-right: 12px;
-                    spacing: 6px;
-                    ColumnHeader {
-                        title: "Name";
-                        is-active-sort: root.current-sort == 0;
-                        ascending: root.sort-ascending;
-                        horizontal-stretch: 1;
-                        clicked => { root.sort(0); }
-                    }
-                    ColumnHeader {
-                        title: "ID";
-                        text-align: right;
-                        is-active-sort: root.current-sort == 1;
-                        ascending: root.sort-ascending;
-                        width: 80px;
-                        clicked => { root.sort(1); }
-                    }
-                    ColumnHeader {
-                        title: "CPU";
-                        text-align: right;
-                        subtext: root.cpu-total;
-                        is-active-sort: root.current-sort == 2;
-                        ascending: root.sort-ascending;
-                        width: 80px;
-                        clicked => { root.sort(2); }
-                    }
-                    ColumnHeader {
-                        title: "Memory";
-                        text-align: right;
-                        subtext: root.memory-total;
-                        is-active-sort: root.current-sort == 3;
-                        ascending: root.sort-ascending;
-                        width: 100px;
-                        clicked => { root.sort(3); }
-                    }
-                    ColumnHeader {
-                        title: "Disk Read";
-                        text-align: right;
-                        subtext: root.disk-read-header-total;
-                        is-active-sort: root.current-sort == 6;
-                        ascending: root.sort-ascending;
-                        width: 110px;
-                        clicked => { root.sort(6); }
-                    }
-                    ColumnHeader {
-                        title: "Disk Write";
-                        text-align: right;
-                        subtext: root.disk-write-header-total;
-                        is-active-sort: root.current-sort == 7;
-                        ascending: root.sort-ascending;
-                        width: 110px;
-                        clicked => { root.sort(7); }
-                    }
-                    ColumnHeader {
-                        title: "↓ Download";
-                        text-align: right;
-                        subtext: root.download-total;
-                        is-active-sort: root.current-sort == 4;
-                        ascending: root.sort-ascending;
-                        width: 110px;
-                        clicked => {
-                            root.sort(4);
-                            if !root.network-running {
-                                root.network();
-                            }
-                        }
-                    }
-                    ColumnHeader {
-                        title: "↑ Upload";
-                        text-align: right;
-                        subtext: root.upload-total;
-                        is-active-sort: root.current-sort == 5;
-                        ascending: root.sort-ascending;
-                        width: 110px;
-                        clicked => {
-                            root.sort(5);
-                            if !root.network-running {
-                                root.network();
-                            }
-                        }
-                    }
-                }
-
-                // Process Rows List
+                // Table Container (Pinned Header + Scrollable Rows with Synchronized Horizontal & Vertical Scrolling)
                 Rectangle {
                     background: #181818;
                     border-radius: 6px;
                     border-width: 1px;
                     border-color: #2b2b2b;
                     vertical-stretch: 1;
+                    clip: true;
 
-                    ListView {
-                        content-width: self.visible-width;
-                        for row in root.rows: Rectangle {
-                            height: 32px;
-                            background: row.selected ? #1c71d8 : (touch.has-hover ? #252525 : transparent);
-                            // Subtle separator line
+                    VerticalLayout {
+                        padding: 0px;
+                        spacing: 0px;
+
+                        // Pinned Synchronized Table Header Bar
+                        Rectangle {
+                            height: 40px;
+                            background: #202020;
+                            clip: true;
                             Rectangle {
                                 y: parent.height - 1px;
                                 width: 100%;
                                 height: 1px;
-                                background: #262626;
+                                background: #2f2f2f;
                             }
                             HorizontalLayout {
+                                x: proc-list.content-x;
+                                width: max(proc-list.visible-width, 990px);
                                 padding-left: 12px;
                                 padding-right: 12px;
                                 spacing: 6px;
-
-                                // Column 0: Icon + Process Name (stretches to fill)
-                                HorizontalLayout {
+                                ColumnHeader {
+                                    title: "Name";
+                                    is-active-sort: root.current-sort == 0;
+                                    ascending: root.sort-ascending;
                                     horizontal-stretch: 1;
+                                    clicked => { root.sort(0); }
+                                }
+                                ColumnHeader {
+                                    title: "ID";
+                                    text-align: right;
+                                    is-active-sort: root.current-sort == 1;
+                                    ascending: root.sort-ascending;
+                                    width: 80px;
+                                    clicked => { root.sort(1); }
+                                }
+                                ColumnHeader {
+                                    title: "CPU";
+                                    text-align: right;
+                                    subtext: root.cpu-total;
+                                    is-active-sort: root.current-sort == 2;
+                                    ascending: root.sort-ascending;
+                                    width: 80px;
+                                    clicked => { root.sort(2); }
+                                }
+                                ColumnHeader {
+                                    title: "Memory";
+                                    text-align: right;
+                                    subtext: root.memory-total;
+                                    is-active-sort: root.current-sort == 3;
+                                    ascending: root.sort-ascending;
+                                    width: 100px;
+                                    clicked => { root.sort(3); }
+                                }
+                                ColumnHeader {
+                                    title: "Disk Read";
+                                    text-align: right;
+                                    subtext: root.disk-read-header-total;
+                                    is-active-sort: root.current-sort == 6;
+                                    ascending: root.sort-ascending;
+                                    width: 110px;
+                                    clicked => { root.sort(6); }
+                                }
+                                ColumnHeader {
+                                    title: "Disk Write";
+                                    text-align: right;
+                                    subtext: root.disk-write-header-total;
+                                    is-active-sort: root.current-sort == 7;
+                                    ascending: root.sort-ascending;
+                                    width: 110px;
+                                    clicked => { root.sort(7); }
+                                }
+                                ColumnHeader {
+                                    title: "↓ Download";
+                                    text-align: right;
+                                    subtext: root.download-total;
+                                    is-active-sort: root.current-sort == 4;
+                                    ascending: root.sort-ascending;
+                                    width: 110px;
+                                    clicked => {
+                                        root.sort(4);
+                                        if !root.network-running {
+                                            root.network();
+                                        }
+                                    }
+                                }
+                                ColumnHeader {
+                                    title: "↑ Upload";
+                                    text-align: right;
+                                    subtext: root.upload-total;
+                                    is-active-sort: root.current-sort == 5;
+                                    ascending: root.sort-ascending;
+                                    width: 110px;
+                                    clicked => {
+                                        root.sort(5);
+                                        if !root.network-running {
+                                            root.network();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Process Rows List with Synchronized Horizontal & Vertical Scrolling
+                        proc-list := ListView {
+                            vertical-stretch: 1;
+                            content-width: max(self.visible-width, 990px);
+                            for row in root.rows: Rectangle {
+                                width: max(proc-list.visible-width, 990px);
+                                height: row.is-section ? 30px : 32px;
+                                background: row.is-section ? (touch.has-hover ? #252c38 : #191e26) : (row.selected ? #1c71d8 : (touch.has-hover ? (row.is-group ? #272a31 : #252525) : (row.is-group ? #1e2229 : transparent)));
+                                // Subtle separator line
+                                Rectangle {
+                                    y: parent.height - 1px;
+                                    width: 100%;
+                                    height: 1px;
+                                    background: row.is-section ? #2a3444 : #262626;
+                                }
+
+                                // Section Header Layout (Apps / Background Processes)
+                                if row.is-section: HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 12px;
                                     spacing: 8px;
-                                    alignment: start;
+                                    cross-axis-alignment: center;
                                     Text {
-                                        text: "◆";
-                                        color: row.selected ? #ffffff : #3584e4;
+                                        text: row.is-expanded ? "▼" : "▶";
+                                        color: #78aeed;
                                         font-size: 11px;
+                                        vertical-alignment: center;
+                                        width: 14px;
+                                    }
+                                    Text {
+                                        text: row.section-id == "apps" ? "📱" : "⚙";
+                                        font-size: 13px;
                                         vertical-alignment: center;
                                     }
                                     Text {
                                         text: row.name;
-                                        color: row.selected ? #ffffff : #e8e8e8;
+                                        color: #78aeed;
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Text {
+                                        text: row.count + " items";
+                                        width: 80px;
+                                        color: #5d82af;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: row.cpu;
+                                        width: 80px;
+                                        color: #78aeed;
                                         font-size: 12px;
-                                        font-weight: 500;
-                                        overflow: elide;
+                                        font-weight: 700;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: row.memory;
+                                        width: 100px;
+                                        color: #78aeed;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: row.read;
+                                        width: 110px;
+                                        color: #78aeed;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: row.write;
+                                        width: 110px;
+                                        color: #78aeed;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: row.download;
+                                        width: 110px;
+                                        color: #78aeed;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                    }
+                                    Text {
+                                        text: row.upload;
+                                        width: 110px;
+                                        color: #78aeed;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        horizontal-alignment: right;
                                         vertical-alignment: center;
                                     }
                                 }
 
-                                // Column 1: ID (PID)
-                                Text {
-                                    text: row.pid;
-                                    width: 80px;
-                                    color: row.selected ? #ffffff : #c0c0c0;
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
+                                if !row.is-section: HorizontalLayout {
+                                    padding-left: row.is-child ? 30px : 12px;
+                                    padding-right: 12px;
+                                    spacing: 6px;
 
-                                // Column 2: CPU %
-                                Text {
-                                    text: row.cpu;
-                                    width: 80px;
-                                    color: row.selected ? #ffffff : #c0c0c0;
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
+                                    // Column 0: Chevron / Tree Branch + Icon + Process / Group Name (stretches to fill)
+                                    HorizontalLayout {
+                                        horizontal-stretch: 1;
+                                        spacing: 6px;
+                                        alignment: start;
 
-                                // Column 3: Memory
-                                Text {
-                                    text: row.memory;
-                                    width: 100px;
-                                    color: row.selected ? #ffffff : #c0c0c0;
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
+                                        // Group Chevron (expand/collapse)
+                                        if row.is-group: Text {
+                                            text: row.is-expanded ? "⌄" : "›";
+                                            color: touch.has-hover ? #ffffff : #3584e4;
+                                            font-size: 13px;
+                                            font-weight: 700;
+                                            vertical-alignment: center;
+                                        }
 
-                                // Column 4: Disk Read
-                                Text {
-                                    text: row.read;
-                                    width: 110px;
-                                    color: row.selected ? #ffffff : #c0c0c0;
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
+                                        // Child tree branch indicator
+                                        if row.is-child: Text {
+                                            text: "↳";
+                                            color: #555555;
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                        }
 
-                                // Column 5: Disk Write
-                                Text {
-                                    text: row.write;
-                                    width: 110px;
-                                    color: row.selected ? #ffffff : #c0c0c0;
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
+                                        // Group / App Icon
+                                        Text {
+                                            text: row.is-group ? "📁" : (row.is-child ? "▫" : "◆");
+                                            color: row.selected ? #ffffff : (row.is-group ? #e5a50a : (row.is-child ? #777777 : #3584e4));
+                                            font-size: row.is-group ? 12px : (row.is-child ? 10px : 11px);
+                                            vertical-alignment: center;
+                                        }
 
-                                // Column 6: Download
-                                Text {
-                                    text: row.download;
-                                    width: 110px;
-                                    color: row.selected ? #ffffff : (row.active ? #57e389 : #808080);
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                }
+                                        // Process Name / Role
+                                        Text {
+                                            text: row.name;
+                                            color: row.selected ? #ffffff : (row.is-group ? #ffffff : (row.is-child ? #b0b8c4 : #e8e8e8));
+                                            font-size: 12px;
+                                            font-weight: row.is-group ? 700 : 500;
+                                            overflow: elide;
+                                            vertical-alignment: center;
+                                        }
+                                    }
 
-                                // Column 7: Upload
-                                Text {
-                                    text: row.upload;
-                                    width: 110px;
-                                    color: row.selected ? #ffffff : (row.active ? #62a0ea : #808080);
-                                    font-size: 12px;
-                                    horizontal-alignment: right;
-                                    vertical-alignment: center;
-                                    overflow: elide;
+                                    // Column 1: ID / Process Count
+                                    Text {
+                                        text: row.is-group ? (row.count + " procs") : (row.pid == 0 ? "—" : row.pid);
+                                        width: 80px;
+                                        color: row.selected ? #ffffff : (row.is-group ? #62a0ea : #c0c0c0);
+                                        font-size: 12px;
+                                        font-weight: row.is-group ? 600 : 400;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+
+                                    // Column 2: CPU %
+                                    Text {
+                                        text: row.cpu;
+                                        width: 80px;
+                                        color: row.selected ? #ffffff : (row.is-group ? #ffffff : #c0c0c0);
+                                        font-size: 12px;
+                                        font-weight: row.is-group ? 700 : 400;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+
+                                    // Column 3: Memory
+                                    Text {
+                                        text: row.memory;
+                                        width: 100px;
+                                        color: row.selected ? #ffffff : (row.is-group ? #ffffff : #c0c0c0);
+                                        font-size: 12px;
+                                        font-weight: row.is-group ? 700 : 400;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+
+                                    // Column 4: Disk Read
+                                    Text {
+                                        text: row.read;
+                                        width: 110px;
+                                        color: row.selected ? #ffffff : #c0c0c0;
+                                        font-size: 12px;
+                                        font-weight: row.is-group ? 600 : 400;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+
+                                    // Column 5: Disk Write
+                                    Text {
+                                        text: row.write;
+                                        width: 110px;
+                                        color: row.selected ? #ffffff : #c0c0c0;
+                                        font-size: 12px;
+                                        font-weight: row.is-group ? 600 : 400;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+
+                                    // Column 6: Download
+                                    Text {
+                                        text: row.download;
+                                        width: 110px;
+                                        color: row.selected ? #ffffff : (row.active ? #57e389 : #808080);
+                                        font-size: 12px;
+                                        font-weight: row.is-group ? 600 : 400;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+
+                                    // Column 7: Upload
+                                    Text {
+                                        text: row.upload;
+                                        width: 110px;
+                                        color: row.selected ? #ffffff : (row.active ? #62a0ea : #808080);
+                                        font-size: 12px;
+                                        font-weight: row.is-group ? 600 : 400;
+                                        horizontal-alignment: right;
+                                        vertical-alignment: center;
+                                        overflow: elide;
+                                    }
+                                }
+                                touch := TouchArea {
+                                    clicked => {
+                                        if row.is-section {
+                                            root.toggle-section(row.section-id);
+                                        } else if row.is-group {
+                                            root.toggle-group(row.group-name);
+                                        } else {
+                                            root.select(row.pid);
+                                        }
+                                    }
                                 }
                             }
-                            touch := TouchArea { clicked => { root.select(row.pid); } }
                         }
                     }
                 }
@@ -1068,6 +1233,10 @@ export component Monitor inherits Window {
                         enabled: !root.network-running;
                         clicked => { root.network(); }
                     }
+                    Button {
+                        text: root.group-by-app ? "🗂 Grouped" : "≡ Flat";
+                        clicked => { root.toggle-group-mode(); }
+                    }
                     Text {
                         text: root.result;
                         color: #f6d32d;
@@ -1094,86 +1263,104 @@ export component Monitor inherits Window {
             // TAB 2: FILE SYSTEMS VIEW
             // ==========================================
             if root.current-tab == 2: VerticalLayout {
-                padding: 16px;
-                spacing: 10px;
+                padding: 12px;
+                spacing: 6px;
 
-                // Header
-                Rectangle {
-                    height: 36px;
-                    background: #242424;
-                    border-radius: 4px;
-                    HorizontalLayout {
-                        padding-left: 12px;
-                        padding-right: 12px;
-                        spacing: 8px;
-                        Text { text: "Device"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 180px; vertical-alignment: center; }
-                        Text { text: "Directory"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 160px; vertical-alignment: center; }
-                        Text { text: "Type"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 80px; vertical-alignment: center; }
-                        Text { text: "Total"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                        Text { text: "Free"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                        Text { text: "Available"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                        Text { text: "Used"; color: #c0c0c0; font-size: 12px; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; }
-                    }
-                }
-
-                // File Systems List
+                // File Systems Table Container
                 Rectangle {
                     background: #181818;
                     border-radius: 6px;
                     border-width: 1px;
                     border-color: #2b2b2b;
                     vertical-stretch: 1;
+                    clip: true;
 
-                    ListView {
-                        content-width: self.visible-width;
-                        for fs in root.filesystems: Rectangle {
+                    VerticalLayout {
+                        padding: 0px;
+                        spacing: 0px;
+
+                        // Pinned Synchronized Table Header
+                        Rectangle {
                             height: 38px;
-                            background: fs-touch.has-hover ? #252525 : transparent;
+                            background: #222222;
+                            clip: true;
                             Rectangle {
                                 y: parent.height - 1px;
                                 width: 100%;
                                 height: 1px;
-                                background: #262626;
+                                background: #2f2f2f;
                             }
                             HorizontalLayout {
+                                x: fs-list.content-x;
+                                width: max(fs-list.visible-width, 1020px);
                                 padding-left: 12px;
                                 padding-right: 12px;
                                 spacing: 8px;
+                                Text { text: "Device"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 180px; vertical-alignment: center; }
+                                Text { text: "Directory"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 160px; vertical-alignment: center; }
+                                Text { text: "Type"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 80px; vertical-alignment: center; }
+                                Text { text: "Total"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Free"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Available"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { text: "Used"; color: #c0c0c0; font-size: 12px; font-weight: 600; width: max(260px, fs-list.visible-width - 760px); vertical-alignment: center; }
+                            }
+                        }
 
-                                Text { text: fs.device; color: #ffffff; font-size: 12px; font-weight: 500; width: 180px; overflow: elide; vertical-alignment: center; }
-                                Text { text: fs.dir; color: #d0d0d0; font-size: 12px; width: 160px; overflow: elide; vertical-alignment: center; }
-                                Text { text: fs.fs_type; color: #9a9a9a; font-size: 12px; width: 80px; vertical-alignment: center; }
-                                Text { text: fs.total; color: #d0d0d0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: fs.free; color: #a0a0a0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-                                Text { text: fs.avail; color: #a0a0a0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
-
+                        // File Systems List with Horizontal & Vertical Scrolling
+                        fs-list := ListView {
+                            vertical-stretch: 1;
+                            content-width: max(self.visible-width, 1020px);
+                            for fs in root.filesystems: Rectangle {
+                                width: max(fs-list.visible-width, 1020px);
+                                height: 38px;
+                                background: fs-touch.has-hover ? #252525 : transparent;
+                                Rectangle {
+                                    y: parent.height - 1px;
+                                    width: 100%;
+                                    height: 1px;
+                                    background: #262626;
+                                }
                                 HorizontalLayout {
-                                    horizontal-stretch: 1;
-                                    spacing: 10px;
-                                    alignment: start;
-                                    Rectangle {
-                                        y: (parent.height - self.height) / 2;
-                                        width: 140px;
-                                        height: 10px;
-                                        background: #333333;
-                                        border-radius: 5px;
+                                    padding-left: 12px;
+                                    padding-right: 12px;
+                                    spacing: 8px;
+
+                                    Text { text: fs.device; color: #ffffff; font-size: 12px; font-weight: 500; width: 180px; overflow: elide; vertical-alignment: center; }
+                                    Text { text: fs.dir; color: #d0d0d0; font-size: 12px; width: 160px; overflow: elide; vertical-alignment: center; }
+                                    Text { text: fs.fs_type; color: #9a9a9a; font-size: 12px; width: 80px; vertical-alignment: center; }
+                                    Text { text: fs.total; color: #d0d0d0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: fs.free; color: #a0a0a0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { text: fs.avail; color: #a0a0a0; font-size: 12px; width: 90px; horizontal-alignment: right; vertical-alignment: center; }
+
+                                    HorizontalLayout {
+                                        width: max(260px, fs-list.visible-width - 760px);
+                                        spacing: 10px;
+                                        alignment: start;
                                         Rectangle {
-                                            x: 0;
-                                            width: parent.width * clamp(fs.used_percent / 100.0, 0.0, 1.0);
-                                            height: parent.height;
-                                            background: fs.used_percent > 90.0 ? #e01b24 : (fs.used_percent > 75.0 ? #ff7800 : #3584e4);
+                                            y: (parent.height - self.height) / 2;
+                                            width: 140px;
+                                            height: 10px;
+                                            background: #333333;
                                             border-radius: 5px;
+                                            Rectangle {
+                                                x: 0;
+                                                width: parent.width * clamp(fs.used_percent / 100.0, 0.0, 1.0);
+                                                height: parent.height;
+                                                background: fs.used_percent > 90.0 ? #e01b24 : (fs.used_percent > 75.0 ? #ff7800 : #3584e4);
+                                                border-radius: 5px;
+                                            }
+                                        }
+                                        Text {
+                                            text: fs.used;
+                                            color: #e0e0e0;
+                                            font-size: 12px;
+                                            vertical-alignment: center;
+                                            overflow: elide;
                                         }
                                     }
-                                    Text {
-                                        text: fs.used;
-                                        color: #e0e0e0;
-                                        font-size: 12px;
-                                        vertical-alignment: center;
-                                    }
                                 }
+                                fs-touch := TouchArea {}
                             }
-                            fs-touch := TouchArea {}
                         }
                     }
                 }

@@ -1,7 +1,7 @@
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::{
     cell::RefCell,
-    collections::VecDeque,
+    collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -27,7 +27,6 @@ pub struct History {
     pub disk_write: VecDeque<f64>,
 }
 
-#[derive(Default)]
 struct View {
     query: String,
     sort: i32,
@@ -36,6 +35,359 @@ struct View {
     selected: Option<(u32, u64)>,
     tab: i32,
     history: History,
+    group_by_app: bool,
+    expanded_groups: HashSet<String>,
+    collapsed_sections: HashSet<String>,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            sort: 0,
+            ascending: true,
+            active: false,
+            selected: None,
+            tab: 0,
+            history: History::default(),
+            group_by_app: true,
+            expanded_groups: HashSet::new(),
+            collapsed_sections: HashSet::new(),
+        }
+    }
+}
+
+fn child_role(name: &str, cmd: &str, pid: u32) -> String {
+    if let Some(pos) = cmd.find("--type=") {
+        let sub = &cmd[pos + 7..];
+        let end = sub.find(' ').unwrap_or(sub.len());
+        let type_name = &sub[..end];
+        let formatted = match type_name {
+            "renderer" => "Tab / Renderer",
+            "gpu-process" => "GPU Process",
+            "utility" => "Utility Service",
+            "zygote" => "Zygote",
+            "broker" => "Broker",
+            other => other,
+        };
+        return format!("{name} ({formatted})");
+    }
+    if cmd.contains("worker") {
+        return format!("{name} (Worker)");
+    }
+    format!("{name} (PID {pid})")
+}
+
+fn render_process_bucket(
+    items: &[&process::Process],
+    fresh: bool,
+    v: &View,
+    snapshot: &Snapshot,
+    traffic: &impl Fn(u32) -> Traffic,
+    parent: &impl Fn(u32) -> String,
+    out: &mut Vec<ProcessRow>,
+) {
+    if v.group_by_app {
+        let mut groups: HashMap<String, Vec<&process::Process>> = HashMap::new();
+        for p in items {
+            groups.entry(p.name.clone()).or_default().push(*p);
+        }
+
+        struct GroupSummary<'a> {
+            name: String,
+            items: Vec<&'a process::Process>,
+            cpu: f64,
+            memory: u64,
+            read: f64,
+            write: f64,
+            down: f64,
+            up: f64,
+        }
+
+        let mut group_list: Vec<GroupSummary> = groups
+            .into_iter()
+            .map(|(name, items)| {
+                let mut cpu = 0.0;
+                let mut memory = 0u64;
+                let mut read = 0.0;
+                let mut write = 0.0;
+                let mut down = 0.0;
+                let mut up = 0.0;
+                for p in &items {
+                    cpu += p.cpu;
+                    memory += p.memory;
+                    read += p.read;
+                    write += p.write;
+                    let t = traffic(p.pid);
+                    down += t.down;
+                    up += t.up;
+                }
+                GroupSummary {
+                    name,
+                    items,
+                    cpu,
+                    memory,
+                    read,
+                    write,
+                    down,
+                    up,
+                }
+            })
+            .collect();
+
+        group_list.sort_by(|a, b| {
+            let cmp = match v.sort {
+                0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                1 => a.items.len().cmp(&b.items.len()),
+                2 => a.cpu.total_cmp(&b.cpu),
+                3 => a.memory.cmp(&b.memory),
+                4 => a.down.total_cmp(&b.down),
+                5 => a.up.total_cmp(&b.up),
+                6 => a.read.total_cmp(&b.read),
+                _ => a.write.total_cmp(&b.write),
+            };
+            if v.ascending { cmp } else { cmp.reverse() }
+        });
+
+        for mut group in group_list {
+            let is_multi = group.items.len() > 1;
+            let is_expanded = is_multi && v.expanded_groups.contains(&group.name);
+
+            if is_multi {
+                out.push(ProcessRow {
+                    pid: 0,
+                    name: format!("{} ({})", group.name, group.items.len()).into(),
+                    parent: format!("{} processes in group", group.items.len()).into(),
+                    cpu: if group.cpu > 0.05 {
+                        format!("{:.1} %", group.cpu).into()
+                    } else {
+                        "—".into()
+                    },
+                    memory: decimal_bytes(group.memory as f64).into(),
+                    download: if fresh && group.down > 0.0 {
+                        rate(group.down).into()
+                    } else {
+                        "—".into()
+                    },
+                    upload: if fresh && group.up > 0.0 {
+                        rate(group.up).into()
+                    } else {
+                        "—".into()
+                    },
+                    read: if group.read > 100.0 {
+                        rate(group.read).into()
+                    } else {
+                        "—".into()
+                    },
+                    write: if group.write > 100.0 {
+                        rate(group.write).into()
+                    } else {
+                        "—".into()
+                    },
+                    selected: false,
+                    active: group.down + group.up > 0.0,
+                    is_group: true,
+                    is_expanded,
+                    is_child: false,
+                    group_name: group.name.clone().into(),
+                    count: group.items.len() as i32,
+                    is_section: false,
+                    section_id: "".into(),
+                });
+
+                if is_expanded {
+                    group.items.sort_by(|a, b| {
+                        let cmp = match v.sort {
+                            2 => a.cpu.total_cmp(&b.cpu),
+                            3 => a.memory.cmp(&b.memory),
+                            4 => traffic(a.pid).down.total_cmp(&traffic(b.pid).down),
+                            5 => traffic(a.pid).up.total_cmp(&traffic(b.pid).up),
+                            6 => a.read.total_cmp(&b.read),
+                            7 => a.write.total_cmp(&b.write),
+                            _ => a.pid.cmp(&b.pid),
+                        };
+                        if v.ascending { cmp } else { cmp.reverse() }
+                    });
+
+                    for p in group.items {
+                        let t = traffic(p.pid);
+                        let known = snapshot.processes.iter().any(|known| known.pid == p.pid);
+                        let display_name = child_role(&p.name, &p.command, p.pid);
+                        out.push(ProcessRow {
+                            pid: p.pid as i32,
+                            name: display_name.into(),
+                            parent: if known {
+                                format!("{} · parent {}", parent(p.parent), p.parent)
+                            } else {
+                                "Owner unavailable • cannot end this row".into()
+                            }
+                            .into(),
+                            cpu: if known && p.cpu > 0.05 {
+                                format!("{:.1} %", p.cpu).into()
+                            } else {
+                                "—".into()
+                            },
+                            memory: if known {
+                                decimal_bytes(p.memory as f64).into()
+                            } else {
+                                "—".into()
+                            },
+                            download: if fresh && t.down > 0.0 {
+                                rate(t.down).into()
+                            } else {
+                                "—".into()
+                            },
+                            upload: if fresh && t.up > 0.0 {
+                                rate(t.up).into()
+                            } else {
+                                "—".into()
+                            },
+                            read: if p.io.is_some() && p.read > 100.0 {
+                                rate(p.read).into()
+                            } else {
+                                "—".into()
+                            },
+                            write: if p.io.is_some() && p.write > 100.0 {
+                                rate(p.write).into()
+                            } else {
+                                "—".into()
+                            },
+                            selected: v.selected == Some((p.pid, p.start)),
+                            active: t.up + t.down > 0.0,
+                            is_group: false,
+                            is_expanded: false,
+                            is_child: true,
+                            group_name: group.name.clone().into(),
+                            count: 1,
+                            is_section: false,
+                            section_id: "".into(),
+                        });
+                    }
+                }
+            } else {
+                let p = group.items[0];
+                let t = traffic(p.pid);
+                let known = snapshot.processes.iter().any(|known| known.pid == p.pid);
+                out.push(ProcessRow {
+                    pid: p.pid as i32,
+                    name: p.name.clone().into(),
+                    parent: if known {
+                        format!("{} · parent {}", parent(p.parent), p.parent)
+                    } else {
+                        "Owner unavailable • cannot end this row".into()
+                    }
+                    .into(),
+                    cpu: if known && p.cpu > 0.05 {
+                        format!("{:.1} %", p.cpu).into()
+                    } else {
+                        "—".into()
+                    },
+                    memory: if known {
+                        decimal_bytes(p.memory as f64).into()
+                    } else {
+                        "—".into()
+                    },
+                    download: if fresh && t.down > 0.0 {
+                        rate(t.down).into()
+                    } else {
+                        "—".into()
+                    },
+                    upload: if fresh && t.up > 0.0 {
+                        rate(t.up).into()
+                    } else {
+                        "—".into()
+                    },
+                    read: if p.io.is_some() && p.read > 100.0 {
+                        rate(p.read).into()
+                    } else {
+                        "—".into()
+                    },
+                    write: if p.io.is_some() && p.write > 100.0 {
+                        rate(p.write).into()
+                    } else {
+                        "—".into()
+                    },
+                    selected: v.selected == Some((p.pid, p.start)),
+                    active: t.up + t.down > 0.0,
+                    is_group: false,
+                    is_expanded: false,
+                    is_child: false,
+                    group_name: p.name.clone().into(),
+                    count: 1,
+                    is_section: false,
+                    section_id: "".into(),
+                });
+            }
+        }
+    } else {
+        let mut sorted_items = items.to_vec();
+        sorted_items.sort_by(|a, b| {
+            let cmp = match v.sort {
+                0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                1 => a.pid.cmp(&b.pid),
+                2 => a.cpu.total_cmp(&b.cpu),
+                3 => a.memory.cmp(&b.memory),
+                4 => traffic(a.pid).down.total_cmp(&traffic(b.pid).down),
+                5 => traffic(a.pid).up.total_cmp(&traffic(b.pid).up),
+                6 => a.read.total_cmp(&b.read),
+                _ => a.write.total_cmp(&b.write),
+            };
+            (if v.ascending { cmp } else { cmp.reverse() }).then(a.pid.cmp(&b.pid))
+        });
+        for p in sorted_items {
+            let t = traffic(p.pid);
+            let known = snapshot.processes.iter().any(|known| known.pid == p.pid);
+            out.push(ProcessRow {
+                pid: p.pid as i32,
+                name: p.name.clone().into(),
+                parent: if known {
+                    format!("{} · parent {}", parent(p.parent), p.parent)
+                } else {
+                    "Owner unavailable • cannot end this row".into()
+                }
+                .into(),
+                cpu: if known && p.cpu > 0.05 {
+                    format!("{:.1} %", p.cpu).into()
+                } else {
+                    "—".into()
+                },
+                memory: if known {
+                    decimal_bytes(p.memory as f64).into()
+                } else {
+                    "—".into()
+                },
+                download: if fresh && t.down > 0.0 {
+                    rate(t.down).into()
+                } else {
+                    "—".into()
+                },
+                upload: if fresh && t.up > 0.0 {
+                    rate(t.up).into()
+                } else {
+                    "—".into()
+                },
+                read: if p.io.is_some() && p.read > 100.0 {
+                    rate(p.read).into()
+                } else {
+                    "—".into()
+                },
+                write: if p.io.is_some() && p.write > 100.0 {
+                    rate(p.write).into()
+                } else {
+                    "—".into()
+                },
+                selected: v.selected == Some((p.pid, p.start)),
+                active: t.up + t.down > 0.0,
+                is_group: false,
+                is_expanded: false,
+                is_child: false,
+                group_name: p.name.clone().into(),
+                count: 1,
+                is_section: false,
+                section_id: "".into(),
+            });
+        }
+    }
 }
 
 fn push_point(buf: &mut VecDeque<f64>, val: f64) {
@@ -190,13 +542,13 @@ fn refresh(ui: &Monitor, snapshot: &Snapshot, net: &Network, v: &mut View) {
             Traffic::default()
         }
     };
-    let parent = |pid: u32| {
+    let parent = |pid: u32| -> String {
         snapshot
             .processes
             .iter()
             .find(|p| p.pid == pid)
-            .map(|p| p.name.as_str())
-            .unwrap_or("exited / hidden")
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| "exited / hidden".to_string())
     };
     let mut processes = snapshot.processes.clone();
     if fresh {
@@ -213,7 +565,7 @@ fn refresh(ui: &Monitor, snapshot: &Snapshot, net: &Network, v: &mut View) {
             }
         }
     }
-    let mut list: Vec<_> = processes
+    let list: Vec<_> = processes
         .iter()
         .filter(|p| {
             let t = traffic(p.pid);
@@ -246,19 +598,6 @@ fn refresh(ui: &Monitor, snapshot: &Snapshot, net: &Network, v: &mut View) {
         .into(),
     );
     ui.set_upload_total(if fresh { rate(totals.up) } else { "—".into() }.into());
-    list.sort_by(|a, b| {
-        let cmp = match v.sort {
-            0 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            1 => a.pid.cmp(&b.pid),
-            2 => a.cpu.total_cmp(&b.cpu),
-            3 => a.memory.cmp(&b.memory),
-            4 => traffic(a.pid).down.total_cmp(&traffic(b.pid).down),
-            5 => traffic(a.pid).up.total_cmp(&traffic(b.pid).up),
-            6 => a.read.total_cmp(&b.read),
-            _ => a.write.total_cmp(&b.write),
-        };
-        (if v.ascending { cmp } else { cmp.reverse() }).then(a.pid.cmp(&b.pid))
-    });
     let sort_name = [
         "name",
         "PID",
@@ -272,76 +611,123 @@ fn refresh(ui: &Monitor, snapshot: &Snapshot, net: &Network, v: &mut View) {
     ui.set_current_sort(v.sort);
     ui.set_sort_ascending(v.ascending);
     let total_count = list.len();
+
+    let (apps, background): (Vec<&process::Process>, Vec<&process::Process>) =
+        list.iter().partition(|p| p.is_app);
+
     ui.set_summary(
         format!(
-            "{} rows • {} {}",
+            "{} apps • {} background ({}) • {} {}",
+            apps.len(),
+            background.len(),
             total_count,
             sort_name,
             if v.ascending { "↑" } else { "↓" }
         )
         .into(),
     );
-    let rows: Vec<_> = list
-        .into_iter()
-        .map(|p| {
+
+    let mut rows: Vec<ProcessRow> = Vec::new();
+
+    // 1. Apps Section (Windows Task Manager style)
+    if !apps.is_empty() {
+        let apps_expanded = !v.collapsed_sections.contains("apps");
+        let mut apps_cpu = 0.0;
+        let mut apps_mem = 0u64;
+        let mut apps_read = 0.0;
+        let mut apps_write = 0.0;
+        let mut apps_down = 0.0;
+        let mut apps_up = 0.0;
+        for p in &apps {
+            apps_cpu += p.cpu;
+            apps_mem += p.memory;
+            apps_read += p.read;
+            apps_write += p.write;
             let t = traffic(p.pid);
-            let known = snapshot.processes.iter().any(|known| known.pid == p.pid);
-            ProcessRow {
-                pid: p.pid as i32,
-                name: p.name.clone().into(),
-                parent: if known {
-                    format!("{} · parent {}", parent(p.parent), p.parent)
-                } else {
-                    "Owner unavailable • cannot end this row".into()
-                }
-                .into(),
-                cpu: if known && p.cpu > 0.05 {
-                    format!("{:.1} %", p.cpu)
-                } else if known {
-                    "—".into()
-                } else {
-                    "—".into()
-                }
-                .into(),
-                memory: if known {
-                    decimal_bytes(p.memory as f64)
-                } else {
-                    "—".into()
-                }
-                .into(),
-                download: if fresh && t.down > 0.0 {
-                    rate(t.down)
-                } else if fresh {
-                    "—".into()
-                } else {
-                    "—".into()
-                }
-                .into(),
-                upload: if fresh && t.up > 0.0 {
-                    rate(t.up)
-                } else if fresh {
-                    "—".into()
-                } else {
-                    "—".into()
-                }
-                .into(),
-                read: if p.io.is_some() && p.read > 100.0 {
-                    rate(p.read)
-                } else {
-                    "—".into()
-                }
-                .into(),
-                write: if p.io.is_some() && p.write > 100.0 {
-                    rate(p.write)
-                } else {
-                    "—".into()
-                }
-                .into(),
-                selected: v.selected == Some((p.pid, p.start)),
-                active: t.up + t.down > 0.0,
-            }
-        })
-        .collect();
+            apps_down += t.down;
+            apps_up += t.up;
+        }
+
+        let mut app_names = HashSet::new();
+        for p in &apps {
+            app_names.insert(&p.name);
+        }
+
+        rows.push(ProcessRow {
+            pid: 0,
+            name: format!("Apps ({})", if v.group_by_app { app_names.len() } else { apps.len() }).into(),
+            parent: "".into(),
+            cpu: if apps_cpu > 0.05 { format!("{:.1} %", apps_cpu).into() } else { "—".into() },
+            memory: decimal_bytes(apps_mem as f64).into(),
+            download: if fresh && apps_down > 0.0 { rate(apps_down).into() } else { "—".into() },
+            upload: if fresh && apps_up > 0.0 { rate(apps_up).into() } else { "—".into() },
+            read: if apps_read > 100.0 { rate(apps_read).into() } else { "—".into() },
+            write: if apps_write > 100.0 { rate(apps_write).into() } else { "—".into() },
+            selected: false,
+            active: apps_down + apps_up > 0.0,
+            is_group: false,
+            is_expanded: apps_expanded,
+            is_child: false,
+            group_name: "".into(),
+            count: apps.len() as i32,
+            is_section: true,
+            section_id: "apps".into(),
+        });
+
+        if apps_expanded {
+            render_process_bucket(&apps, fresh, v, snapshot, &traffic, &parent, &mut rows);
+        }
+    }
+
+    // 2. Background Processes Section
+    if !background.is_empty() {
+        let bg_expanded = !v.collapsed_sections.contains("background");
+        let mut bg_cpu = 0.0;
+        let mut bg_mem = 0u64;
+        let mut bg_read = 0.0;
+        let mut bg_write = 0.0;
+        let mut bg_down = 0.0;
+        let mut bg_up = 0.0;
+        for p in &background {
+            bg_cpu += p.cpu;
+            bg_mem += p.memory;
+            bg_read += p.read;
+            bg_write += p.write;
+            let t = traffic(p.pid);
+            bg_down += t.down;
+            bg_up += t.up;
+        }
+
+        let mut bg_names = HashSet::new();
+        for p in &background {
+            bg_names.insert(&p.name);
+        }
+
+        rows.push(ProcessRow {
+            pid: 0,
+            name: format!("Background processes ({})", if v.group_by_app { bg_names.len() } else { background.len() }).into(),
+            parent: "".into(),
+            cpu: if bg_cpu > 0.05 { format!("{:.1} %", bg_cpu).into() } else { "—".into() },
+            memory: decimal_bytes(bg_mem as f64).into(),
+            download: if fresh && bg_down > 0.0 { rate(bg_down).into() } else { "—".into() },
+            upload: if fresh && bg_up > 0.0 { rate(bg_up).into() } else { "—".into() },
+            read: if bg_read > 100.0 { rate(bg_read).into() } else { "—".into() },
+            write: if bg_write > 100.0 { rate(bg_write).into() } else { "—".into() },
+            selected: false,
+            active: bg_down + bg_up > 0.0,
+            is_group: false,
+            is_expanded: bg_expanded,
+            is_child: false,
+            group_name: "".into(),
+            count: background.len() as i32,
+            is_section: true,
+            section_id: "background".into(),
+        });
+
+        if bg_expanded {
+            render_process_bucket(&background, fresh, v, snapshot, &traffic, &parent, &mut rows);
+        }
+    }
     ui.set_rows(ModelRc::new(VecModel::from(rows)));
     let selected = v.selected.and_then(|(pid, start)| {
         snapshot
@@ -394,12 +780,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ui.window().set_maximized(true);
         }
         ui.set_current_tab(s.last_tab);
+        ui.set_group_by_app(s.group_by_app);
     }
 
     let initial_tab = settings.borrow().last_tab;
+    let initial_group = settings.borrow().group_by_app;
     let view = Rc::new(RefCell::new(View {
         sort: 3,
         tab: initial_tab,
+        group_by_app: initial_group,
         ..Default::default()
     }));
     let latest = Arc::new(Mutex::new(Snapshot::default()));
@@ -582,6 +971,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         let v = view.clone();
+        let r = repaint.clone();
+        ui.on_toggle_group(move |group_name| {
+            let key = group_name.as_str().to_string();
+            let mut v = v.borrow_mut();
+            if v.expanded_groups.contains(&key) {
+                v.expanded_groups.remove(&key);
+            } else {
+                v.expanded_groups.insert(key);
+            }
+            drop(v);
+            r();
+        });
+    }
+    {
+        let v = view.clone();
+        let r = repaint.clone();
+        let s = settings.clone();
+        let w = ui.as_weak();
+        ui.on_toggle_group_mode(move || {
+            let new_mode = !v.borrow().group_by_app;
+            v.borrow_mut().group_by_app = new_mode;
+            s.borrow_mut().group_by_app = new_mode;
+            if let Some(ui) = w.upgrade() {
+                ui.set_group_by_app(new_mode);
+            }
+            let _ = s.borrow().save();
+            r();
+        });
+    }
+    {
+        let v = view.clone();
+        let r = repaint.clone();
+        ui.on_toggle_section(move |section_id| {
+            let key = section_id.as_str().to_string();
+            let mut v = v.borrow_mut();
+            if v.collapsed_sections.contains(&key) {
+                v.collapsed_sections.remove(&key);
+            } else {
+                v.collapsed_sections.insert(key);
+            }
+            drop(v);
+            r();
+        });
+    }
+    {
+        let v = view.clone();
         let w = ui.as_weak();
         ui.on_end_process(move |force| {
             if let Some(ui) = w.upgrade() {
@@ -721,7 +1156,9 @@ mod regression_tests {
         let mut v2 = View::default();
         refresh(&ui, &snapshot, &net, &mut v2);
         assert_eq!(ui.get_upload_total().as_str(), rate(788.0 * 1024.0));
-        assert_eq!(ui.get_rows().row_count(), 4);
+        // 4 background processes + 1 background section header row = 5 rows
+        assert_eq!(ui.get_rows().row_count(), 5);
+        assert!(ui.get_rows().row_data(0).unwrap().is_section);
         assert!(!ui.get_can_end());
         // A search with no matches is a live zero, stale data is unavailable.
         let mut v_nomatch = View {
@@ -736,5 +1173,129 @@ mod regression_tests {
         assert_eq!(ui.get_upload_total().as_str(), "—");
         assert_eq!(ui.get_rows().row_data(0).unwrap().upload.as_str(), "—");
         assert!(ui.get_interface_totals().contains("336.9 KiB/s"));
+    }
+
+    #[test]
+    fn grouping_and_accordion_expansion() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = Monitor::new().unwrap();
+        let snapshot = Snapshot {
+            processes: vec![
+                {
+                    let mut p = process::Process::default();
+                    p.pid = 1001;
+                    p.name = "chrome".into();
+                    p.command = "/usr/bin/chrome --type=renderer".into();
+                    p.memory = 400 * 1024 * 1024;
+                    p.cpu = 5.0;
+                    p.is_app = true;
+                    p
+                },
+                {
+                    let mut p = process::Process::default();
+                    p.pid = 1002;
+                    p.name = "chrome".into();
+                    p.command = "/usr/bin/chrome --type=gpu-process".into();
+                    p.memory = 300 * 1024 * 1024;
+                    p.cpu = 3.0;
+                    p.is_app = true;
+                    p
+                },
+                {
+                    let mut p = process::Process::default();
+                    p.pid = 1003;
+                    p.name = "chrome".into();
+                    p.command = "/usr/bin/chrome --type=utility".into();
+                    p.memory = 100 * 1024 * 1024;
+                    p.cpu = 2.0;
+                    p.is_app = true;
+                    p
+                },
+                {
+                    let mut p = process::Process::default();
+                    p.pid = 2001;
+                    p.name = "beam.smp".into();
+                    p.memory = 50 * 1024 * 1024;
+                    p.cpu = 1.0;
+                    p.is_app = false;
+                    p
+                },
+            ],
+            ..Default::default()
+        };
+        let net = Network::default();
+
+        // 1. Grouped mode, collapsed (default)
+        let mut v_grouped = View {
+            group_by_app: true,
+            ..Default::default()
+        };
+        refresh(&ui, &snapshot, &net, &mut v_grouped);
+
+        // Apps section: 1 section header ("Apps (1)") + 1 chrome group
+        // Background section: 1 section header ("Background processes (1)") + 1 beam.smp row
+        // Total rows: 4
+        assert_eq!(ui.get_rows().row_count(), 4);
+
+        let row0 = ui.get_rows().row_data(0).unwrap();
+        assert!(row0.is_section);
+        assert_eq!(row0.section_id.as_str(), "apps");
+        assert!(row0.name.contains("Apps (1)"));
+
+        let row1 = ui.get_rows().row_data(1).unwrap();
+        assert!(row1.is_group);
+        assert_eq!(row1.count, 3);
+        assert!(row1.name.contains("chrome (3)"));
+        // Total aggregated CPU: 5.0 + 3.0 + 2.0 = 10.0%
+        assert!(row1.cpu.contains("10.0 %"));
+
+        let row2 = ui.get_rows().row_data(2).unwrap();
+        assert!(row2.is_section);
+        assert_eq!(row2.section_id.as_str(), "background");
+        assert!(row2.name.contains("Background processes (1)"));
+
+        let row3 = ui.get_rows().row_data(3).unwrap();
+        assert_eq!(row3.name.as_str(), "beam.smp");
+        assert!(!row3.is_group);
+
+        // 2. Grouped mode, expanded chrome group
+        let mut v_expanded = View {
+            group_by_app: true,
+            expanded_groups: ["chrome".to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+        refresh(&ui, &snapshot, &net, &mut v_expanded);
+        // Apps section: 1 header + 1 chrome group + 3 children = 5 rows
+        // Background section: 1 header + 1 beam.smp = 2 rows
+        // Total: 7 rows
+        assert_eq!(ui.get_rows().row_count(), 7);
+        let child = ui.get_rows().row_data(2).unwrap();
+        assert!(child.is_child);
+        assert!(child.name.contains("Tab / Renderer") || child.name.contains("GPU Process") || child.name.contains("Utility Service"));
+
+        // 3. Collapsing a section
+        let mut v_collapsed_sec = View {
+            group_by_app: true,
+            collapsed_sections: ["apps".to_string()].into_iter().collect(),
+            ..Default::default()
+        };
+        refresh(&ui, &snapshot, &net, &mut v_collapsed_sec);
+        // Apps section collapsed: 1 header
+        // Background section: 1 header + 1 beam.smp = 2 rows
+        // Total: 3 rows
+        assert_eq!(ui.get_rows().row_count(), 3);
+        assert_eq!(ui.get_rows().row_data(0).unwrap().section_id.as_str(), "apps");
+        assert_eq!(ui.get_rows().row_data(1).unwrap().section_id.as_str(), "background");
+
+        // 4. Flat mode
+        let mut v_flat = View {
+            group_by_app: false,
+            ..Default::default()
+        };
+        refresh(&ui, &snapshot, &net, &mut v_flat);
+        // Apps section: 1 header + 3 chrome rows = 4 rows
+        // Background section: 1 header + 1 beam.smp row = 2 rows
+        // Total: 6 rows
+        assert_eq!(ui.get_rows().row_count(), 6);
     }
 }

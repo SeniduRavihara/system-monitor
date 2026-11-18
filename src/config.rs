@@ -6,6 +6,7 @@ pub struct AppSettings {
     pub height: f32,
     pub last_tab: i32,
     pub maximized: bool,
+    pub group_by_app: bool,
 }
 
 impl Default for AppSettings {
@@ -15,6 +16,7 @@ impl Default for AppSettings {
             height: 680.0,
             last_tab: 0,
             maximized: false,
+            group_by_app: true,
         }
     }
 }
@@ -60,6 +62,11 @@ impl AppSettings {
                     settings.maximized = max;
                     found_any = true;
                 }
+            } else if let Some(rest) = trimmed.strip_prefix("\"group_by_app\":") {
+                if let Ok(grp) = rest.trim().parse::<bool>() {
+                    settings.group_by_app = grp;
+                    found_any = true;
+                }
             }
         }
 
@@ -72,8 +79,8 @@ impl AppSettings {
 
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"width\": {:.1},\n  \"height\": {:.1},\n  \"last_tab\": {},\n  \"maximized\": {}\n}}\n",
-            self.width, self.height, self.last_tab, self.maximized
+            "{{\n  \"width\": {:.1},\n  \"height\": {:.1},\n  \"last_tab\": {},\n  \"maximized\": {},\n  \"group_by_app\": {}\n}}\n",
+            self.width, self.height, self.last_tab, self.maximized, self.group_by_app
         )
     }
 
@@ -114,6 +121,7 @@ mod tests {
         assert_eq!(s.height, 680.0);
         assert_eq!(s.last_tab, 0);
         assert!(!s.maximized);
+        assert!(s.group_by_app);
     }
 
     #[test]
@@ -123,6 +131,7 @@ mod tests {
             height: 720.0,
             last_tab: 2,
             maximized: true,
+            group_by_app: false,
         };
         let json = original.to_json();
         let parsed = AppSettings::parse_json(&json).expect("should parse json");
@@ -144,6 +153,7 @@ mod tests {
             height: 750.0,
             last_tab: 1,
             maximized: false,
+            group_by_app: true,
         };
         expected.save_to(&file).expect("save should succeed");
         let loaded = AppSettings::load_from(&file);

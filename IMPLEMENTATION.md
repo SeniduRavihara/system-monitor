@@ -65,6 +65,20 @@ graph TD
   - Live throughput tracking with auto-scaling units (B/s, KiB/s, MiB/s, GiB/s).
 
 ### 2.3 Process Management & Inspection (Processes Tab)
+- **Apps vs. Background Processes Categorization (Windows Task Manager Style)**:
+  - Intelligently divides the process list into two distinct, collapsible sections:
+    1. **Apps (N)**: User-facing interactive desktop applications (browsers, IDEs, terminal windows, media players, desktop tools).
+    2. **Background processes (N)**: System services, daemons, background workers, and session infrastructure.
+  - Distinct styled section header bars with section-specific icons (`📱` for Apps, `⚙` for Background processes) and collapsible chevron indicators (`▼` / `▶`).
+  - Section headers display aggregate resource totals (total items, summed CPU %, Memory, Disk Read/Write, and per-process Download/Upload rates) across all members of that section.
+  - Clicking a section header collapses or expands the entire section.
+- **Application Grouping with Accordion UI**:
+  - Automatically collapses repetitive multi-process applications (such as `chrome (20)`, `agy (11)`, `antigravity-ide (38)`) into a single clean parent row within their respective section.
+  - Interactive chevron toggles (`›` collapsed, `⌄` expanded) to open and collapse sub-processes.
+  - Aggregates resource metrics across all children in the group: summed CPU %, Memory footprint, Disk Read/Write rates, and Download/Upload bandwidth.
+  - Intelligently detects and labels child process roles (e.g. `Tab / Renderer`, `GPU Process`, `Utility Service`, `Broker`, or PID).
+  - Quick toggle button (**`🗂 Grouped`** / **`≡ Flat`**) in both the search bar and bottom action bar.
+  - Grouping preference remembered across restarts in `~/.config/system-monitor/settings.json`.
 - **Live Process Table**:
   - Displays Process Name, PID, User, CPU %, Memory (RSS), Disk Read rate, Disk Write rate, Download rate, and Upload rate.
   - Clickable column headers for two-way sorting (ascending/descending) with visible sort indicator arrows.
@@ -80,6 +94,10 @@ graph TD
 - **Mount Point Explorer**:
   - Lists physical storage devices, mount points, filesystem types (ext4, btrfs, tmpfs, etc.).
   - Displays Total, Available, and Used space with visual capacity progress bars.
+- **Synchronized Horizontal Scrolling**:
+  - Both **File Systems** and **Processes** tables now include synchronized horizontal scrolling.
+  - When the window is resized down or displayed on compact screens, an automatic horizontal scrollbar appears.
+  - Pinned column headers stay locked in exact horizontal pixel synchronization with table data rows during scrolling via Slint's `content-x` binding.
 
 ### 2.5 Desktop Window State Persistence
 - **Settings Store (`~/.config/system-monitor/settings.json`)**:
@@ -146,6 +164,11 @@ Data collection runs on an isolated background thread to guarantee the UI thread
    let pidfd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
    ```
    Checks the process start time against the initial sample time before issuing `pidfd_send_signal`.
+4. **Apps vs. Background Process Classification on Linux**:
+   Distinguishing interactive applications from background daemons on Linux is achieved by leveraging Linux cgroups v2, process user ownership, and execution paths:
+   - **System Services**: Any process with `UID < 1000` (e.g. `root`, `postgres`, `systemd`, `dbus`) is classified as a Background process.
+   - **Interactive User Apps**: On modern systemd desktop environments (GNOME, KDE), user desktop applications run inside the user's `app.slice` (`/user.slice/user-<uid>.slice/user@<uid>.service/app.slice/`).
+   - **Daemon Filtering**: Background session helpers and daemons inside the user session (e.g. binaries in `/usr/libexec/`, `/usr/lib/systemd/`, or names ending in `-daemon`/`d`, or services like `wireplumber`, `pipewire`, `at-spi`) are filtered into **Background processes**, leaving the **Apps** section dedicated purely to interactive user applications (`chrome`, `antigravity-ide`, `agy`, `ChatGPT`, etc.).
 
 ### 3.3 Passwordless Network Attribution Engine (`src/network.rs`)
 
@@ -237,9 +260,10 @@ All changes are validated with automated test suites:
 | `decimal_and_binary_formatting` | `lib` | Checks unit formatting (`KiB`, `MiB`, `GiB`) |
 | `path_generation` | `lib` | Validates SVG path string math for graphs |
 | `displayed_network_totals_match`| `main` | Regression test verifying summary totals match row sums |
+| `grouping_and_accordion_expansion`| `main` | Tests Apps/Background sectioning, accordion expansion, and section collapsing |
 | `render_monitor_and_confirmation`| `ui` | Headless rendering of full UI and confirmation modals |
 
-All 14 tests pass cleanly via `cargo test --locked`.
+All 15 unit and integration tests pass cleanly via `cargo test --locked`.
 
 ---
 

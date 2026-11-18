@@ -19,6 +19,56 @@ pub struct Process {
     pub write: f64,
     ticks: u64,
     pub io: Option<(u64, u64)>,
+    pub is_app: bool,
+}
+
+pub fn is_application(name: &str, exe: &str, cgroup: &str, uid: u32) -> bool {
+    if uid < 1000 {
+        return false;
+    }
+    if matches!(
+        name,
+        "system-monitor"
+            | "chrome"
+            | "google-chrome"
+            | "chromium"
+            | "firefox"
+            | "brave"
+            | "antigravity-ide"
+            | "agy"
+            | "code"
+            | "ChatGPT"
+            | "slack"
+            | "discord"
+            | "telegram-desktop"
+            | "spotify"
+            | "ptyxis"
+            | "gnome-terminal"
+            | "alacritty"
+            | "kitty"
+            | "wezterm"
+            | "nautilus"
+            | "gedit"
+            | "vlc"
+            | "gimp"
+            | "steam"
+    ) {
+        return true;
+    }
+    if exe.starts_with("/usr/libexec/")
+        || exe.starts_with("/usr/lib/systemd/")
+        || name.ends_with("-daemon")
+        || name.ends_with("d")
+        || name.starts_with("at-spi")
+        || name.starts_with("gsd-")
+        || name.starts_with("gnome-session")
+        || name.starts_with("pipewire")
+        || name.starts_with("wireplumber")
+        || name.starts_with("xdg-")
+    {
+        return false;
+    }
+    cgroup.contains("app.slice")
 }
 pub fn parse_stat(text: &str) -> Option<(String, u32, u64, u64, u64)> {
     let left = text.find('(')?;
@@ -57,6 +107,8 @@ pub fn read_process(pid: u32) -> Option<Process> {
         };
         Some((get("read_bytes:")?, get("write_bytes:")?))
     });
+    let cgroup = fs::read_to_string(format!("{base}/cgroup")).unwrap_or_default();
+    let is_app = is_application(&name, &exe, &cgroup, uid);
     Some(Process {
         pid,
         parent,
@@ -68,6 +120,7 @@ pub fn read_process(pid: u32) -> Option<Process> {
         memory: rss * unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as u64,
         ticks,
         io,
+        is_app,
         ..Default::default()
     })
 }

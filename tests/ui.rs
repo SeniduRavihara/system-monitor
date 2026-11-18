@@ -88,33 +88,177 @@ fn render_monitor_and_confirmation() {
     ui.set_status("Live network • measured by NetHogs".into());
     ui.set_summary("6 processes • memory ↓".into());
 
-    let names = [
-        "agy",
-        "chrome",
-        "antigravity-ide",
-        "gnome-shell",
-        "ChatGPT",
-        "pipewire",
+    let sample_rows = vec![
+        // --- 1. Apps Section Header ---
+        ProcessRow {
+            pid: 0,
+            name: "Apps (3)".into(),
+            parent: "".into(),
+            cpu: "21.6 %".into(),
+            memory: "3.2 GB".into(),
+            download: "4.7 MiB/s".into(),
+            upload: "160.0 KiB/s".into(),
+            read: "1.2 MiB/s".into(),
+            write: "950.0 KiB/s".into(),
+            selected: false,
+            active: true,
+            is_group: false,
+            is_expanded: true,
+            is_child: false,
+            group_name: "".into(),
+            count: 27,
+            is_section: true,
+            section_id: "apps".into(),
+        },
+        // Group row under Apps: agy (4)
+        ProcessRow {
+            pid: 2508712,
+            name: "agy (4)".into(),
+            parent: "systemd · parent 3693".into(),
+            cpu: "15.9 %".into(),
+            memory: "510.4 MB".into(),
+            download: "4.6 MiB/s".into(),
+            upload: "32.0 KiB/s".into(),
+            read: "397.3 KiB/s".into(),
+            write: "902.7 KiB/s".into(),
+            selected: true,
+            active: true,
+            is_group: true,
+            is_expanded: false,
+            is_child: false,
+            group_name: "agy".into(),
+            count: 4,
+            is_section: false,
+            section_id: "".into(),
+        },
+        // Group row under Apps: chrome (20)
+        ProcessRow {
+            pid: 3394774,
+            name: "chrome (20)".into(),
+            parent: "systemd · parent 3693".into(),
+            cpu: "4.5 %".into(),
+            memory: "2.1 GB".into(),
+            download: "85.0 KiB/s".into(),
+            upload: "120.0 KiB/s".into(),
+            read: "812.0 KiB/s".into(),
+            write: "45.0 KiB/s".into(),
+            selected: false,
+            active: true,
+            is_group: true,
+            is_expanded: false,
+            is_child: false,
+            group_name: "chrome".into(),
+            count: 20,
+            is_section: false,
+            section_id: "".into(),
+        },
+        // Single App: ChatGPT
+        ProcessRow {
+            pid: 2601940,
+            name: "ChatGPT".into(),
+            parent: "systemd · parent 3693".into(),
+            cpu: "1.2 %".into(),
+            memory: "580.0 MB".into(),
+            download: "12.0 KiB/s".into(),
+            upload: "8.0 KiB/s".into(),
+            read: "—".into(),
+            write: "—".into(),
+            selected: false,
+            active: true,
+            is_group: false,
+            is_expanded: false,
+            is_child: false,
+            group_name: "".into(),
+            count: 1,
+            is_section: false,
+            section_id: "".into(),
+        },
+        // --- 2. Background Processes Section Header ---
+        ProcessRow {
+            pid: 0,
+            name: "Background processes (3)".into(),
+            parent: "".into(),
+            cpu: "4.2 %".into(),
+            memory: "950.0 MB".into(),
+            download: "3.2 KiB/s".into(),
+            upload: "32.0 KiB/s".into(),
+            read: "45.0 KiB/s".into(),
+            write: "12.0 KiB/s".into(),
+            selected: false,
+            active: true,
+            is_group: false,
+            is_expanded: true,
+            is_child: false,
+            group_name: "".into(),
+            count: 3,
+            is_section: true,
+            section_id: "background".into(),
+        },
+        // Background process: gnome-shell
+        ProcessRow {
+            pid: 3820,
+            name: "gnome-shell".into(),
+            parent: "systemd · parent 3693".into(),
+            cpu: "3.8 %".into(),
+            memory: "780.0 MB".into(),
+            download: "—".into(),
+            upload: "—".into(),
+            read: "30.0 KiB/s".into(),
+            write: "10.0 KiB/s".into(),
+            selected: false,
+            active: false,
+            is_group: false,
+            is_expanded: false,
+            is_child: false,
+            group_name: "".into(),
+            count: 1,
+            is_section: false,
+            section_id: "".into(),
+        },
+        // Background process: pipewire
+        ProcessRow {
+            pid: 4120,
+            name: "pipewire".into(),
+            parent: "systemd · parent 3693".into(),
+            cpu: "0.4 %".into(),
+            memory: "35.0 MB".into(),
+            download: "—".into(),
+            upload: "—".into(),
+            read: "—".into(),
+            write: "—".into(),
+            selected: false,
+            active: false,
+            is_group: false,
+            is_expanded: false,
+            is_child: false,
+            group_name: "".into(),
+            count: 1,
+            is_section: false,
+            section_id: "".into(),
+        },
+        // Background process: accounts-daemon
+        ProcessRow {
+            pid: 984,
+            name: "accounts-daemon".into(),
+            parent: "systemd · parent 1".into(),
+            cpu: "—".into(),
+            memory: "5.4 MB".into(),
+            download: "—".into(),
+            upload: "—".into(),
+            read: "—".into(),
+            write: "—".into(),
+            selected: false,
+            active: false,
+            is_group: false,
+            is_expanded: false,
+            is_child: false,
+            group_name: "".into(),
+            count: 1,
+            is_section: false,
+            section_id: "".into(),
+        },
     ];
-    ui.set_rows(ModelRc::new(VecModel::from(
-        names
-            .iter()
-            .enumerate()
-            .map(|(i, n)| ProcessRow {
-                pid: 2508712 + i as i32,
-                name: (*n).into(),
-                parent: "systemd · parent 3693".into(),
-                cpu: if i == 0 { "15.9 %" } else { "1.0 %" }.into(),
-                memory: if i == 0 { "510.4 MB" } else { "397.0 MB" }.into(),
-                download: if i == 0 { "4.6 MiB/s" } else { "12.0 KiB/s" }.into(),
-                upload: "32.0 KiB/s".into(),
-                read: if i == 0 { "397.3 KiB/s" } else { "—" }.into(),
-                write: if i == 0 { "902.7 KiB/s" } else { "—" }.into(),
-                selected: i == 0,
-                active: true,
-            })
-            .collect::<Vec<_>>(),
-    )));
+    ui.set_rows(ModelRc::new(VecModel::from(sample_rows)));
     ui.set_selected_name("agy (PID 2508712)".into());
     ui.set_details("agy • PID 2508712 • user 1000 • parent systemd (3693)\nExecutable: /home/senu/.gemini/antigravity-cli/bin/agy\nCommand: agy".into());
     ui.set_can_end(true);
@@ -213,8 +357,14 @@ fn render_monitor_and_confirmation() {
     let s_fs = ui.window().take_snapshot().unwrap();
     save_image("preview-filesystems.png", &s_fs);
 
+    // File Systems in narrow window (tests horizontal scrollbar rendering)
+    ui.window().set_size(slint::LogicalSize::new(820., 550.));
+    let s_fs_narrow = ui.window().take_snapshot().unwrap();
+    save_image("preview-filesystems-narrow.png", &s_fs_narrow);
+
     // 4. Confirmation dialog
     ui.set_current_tab(1);
+    ui.window().set_size(slint::LogicalSize::new(1240., 820.));
     ui.set_confirm(true);
     let s_conf = ui.window().take_snapshot().unwrap();
     save_image("confirmation.png", &s_conf);

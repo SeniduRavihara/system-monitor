@@ -4,7 +4,28 @@ A Linux desktop process monitor built with Rust + Slint 1.18.1, matching the
 architecture of the supplied Crawler Studio reference: declarative Slint UI,
 Rust controller, background sampling, and the Winit software renderer.
 
-## Run
+## Install onto Linux
+
+To install System Monitor as a first-class desktop application in your application launcher and terminal:
+
+```sh
+# Install for current user (no root required)
+./scripts/install.sh
+
+# Or install system-wide for all users
+sudo ./scripts/install.sh --system
+```
+
+Once installed:
+- Search for **"System Monitor"** in your GNOME / desktop applications launcher.
+- Or run `system-monitor` from any terminal.
+
+To uninstall anytime:
+```sh
+./scripts/uninstall.sh
+```
+
+## Run without installing
 
 Double-click `launch.sh`, or run it in a terminal. The included `bin/system-monitor`
 is built for this Fedora x86-64 environment. To rebuild:
