@@ -831,6 +831,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let w = ui.as_weak();
         ui.on_minimize_window(move || {
             if let Some(ui) = w.upgrade() {
+                // Ensure state transition false -> true so Slint's internal adapter
+                // always dispatches the underlying window-manager minimize request,
+                // even on Wayland where compositor unminimize notifications are absent.
+                ui.window().set_minimized(false);
                 ui.window().set_minimized(true);
             }
         });
@@ -1048,6 +1052,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let max = ui.window().is_maximized();
                 let mut s = s_size.borrow_mut();
                 s.maximized = max;
+                if ui.window().is_minimized() {
+                    // Window is active and ticking, clear stale minimized state
+                    ui.window().set_minimized(false);
+                }
                 if !max {
                     let size = ui.window().size();
                     let scale = ui.window().scale_factor();
@@ -1297,5 +1305,58 @@ mod regression_tests {
         // Background section: 1 header + 1 beam.smp row = 2 rows
         // Total: 6 rows
         assert_eq!(ui.get_rows().row_count(), 6);
+    }
+
+    #[test]
+    fn window_minimize_callback_invokes_set_minimized() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = Monitor::new().unwrap();
+        let minimized_called = Rc::new(std::cell::Cell::new(0));
+        let m_count = minimized_called.clone();
+        let w = ui.as_weak();
+        ui.on_minimize_window(move || {
+            if let Some(ui) = w.upgrade() {
+                ui.window().set_minimized(false);
+                ui.window().set_minimized(true);
+                m_count.set(m_count.get() + 1);
+            }
+        });
+
+        ui.invoke_minimize_window();
+        assert_eq!(minimized_called.get(), 1);
+        assert!(ui.window().is_minimized());
+
+        ui.invoke_minimize_window();
+        assert_eq!(minimized_called.get(), 2);
+        assert!(ui.window().is_minimized());
+    }
+
+    #[test]
+    fn resources_collapsing_toggles_expansion_state() {
+        i_slint_backend_testing::init_no_event_loop();
+        let ui = Monitor::new().unwrap();
+
+        // Default all expanded
+        assert!(ui.get_cpu_expanded());
+        assert!(ui.get_mem_expanded());
+        assert!(ui.get_net_expanded());
+        assert!(ui.get_disk_expanded());
+
+        // Toggle sections
+        ui.set_cpu_expanded(false);
+        assert!(!ui.get_cpu_expanded());
+
+        ui.set_mem_expanded(false);
+        assert!(!ui.get_mem_expanded());
+
+        ui.set_net_expanded(false);
+        assert!(!ui.get_net_expanded());
+
+        ui.set_disk_expanded(false);
+        assert!(!ui.get_disk_expanded());
+
+        // Re-expand
+        ui.set_cpu_expanded(true);
+        assert!(ui.get_cpu_expanded());
     }
 }

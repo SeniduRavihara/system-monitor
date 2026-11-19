@@ -65,24 +65,44 @@ component SegmentButton inherits Rectangle {
     }
 }
 
-component SectionTitle inherits HorizontalLayout {
+component SectionTitle inherits Rectangle {
     in property <string> title;
-    spacing: 8px;
-    height: 22px;
-    alignment: start;
-    Text {
-        text: "▾";
-        color: #ffffff;
-        font-size: 12px;
-        font-weight: 700;
-        vertical-alignment: center;
+    in-out property <bool> expanded: true;
+    callback clicked();
+
+    height: 30px;
+    border-radius: 6px;
+    background: touch.has-hover ? #282828 : transparent;
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 8px;
+        spacing: 8px;
+        alignment: start;
+        cross-axis-alignment: center;
+
+        Text {
+            text: root.expanded ? "▾" : "▸";
+            color: touch.has-hover ? #3584e4 : #ffffff;
+            font-size: 14px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.title;
+            color: touch.has-hover ? #ffffff : #f0f0f0;
+            font-size: 14px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
     }
-    Text {
-        text: root.title;
-        color: #ffffff;
-        font-size: 14px;
-        font-weight: 700;
-        vertical-alignment: center;
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.expanded = !root.expanded;
+            root.clicked();
+        }
     }
 }
 
@@ -344,6 +364,13 @@ export component Monitor inherits Window {
     callback toggle-section(string);
     in-out property <bool> group-by-app: true;
 
+    // Resources View expansion states
+    in-out property <bool> cpu-expanded: true;
+    in-out property <bool> mem-expanded: true;
+    in-out property <bool> net-expanded: true;
+    in-out property <bool> disk-expanded: true;
+    callback toggle-resource-section(string);
+
     VerticalLayout {
         padding: 0px;
         spacing: 0px;
@@ -476,7 +503,10 @@ export component Monitor inherits Window {
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
-                            min-touch := TouchArea { clicked => { root.minimize-window(); } }
+                            min-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.minimize-window(); }
+                            }
                         }
 
                         Rectangle {
@@ -492,7 +522,10 @@ export component Monitor inherits Window {
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
-                            max-touch := TouchArea { clicked => { root.maximize-window(); } }
+                            max-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.maximize-window(); }
+                            }
                         }
 
                         Rectangle {
@@ -508,7 +541,10 @@ export component Monitor inherits Window {
                                 horizontal-alignment: center;
                                 vertical-alignment: center;
                             }
-                            close-touch := TouchArea { clicked => { root.close-window(); } }
+                            close-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.close-window(); }
+                            }
                         }
                     }
                 }
@@ -531,54 +567,61 @@ export component Monitor inherits Window {
                     // 1. CPU Section
                     VerticalLayout {
                         spacing: 8px;
-                        SectionTitle { title: "CPU"; }
-                        Rectangle {
-                            height: 110px;
-                            clip: true;
-                            border-radius: 6px;
-                            GraphGrid {}
-                            // 8 CPU Line Paths spanning full width
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #e01b24; stroke-width: 1.8px; commands: root.cpu1-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.cpu2-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #f6d32d; stroke-width: 1.8px; commands: root.cpu3-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #57e389; stroke-width: 1.8px; commands: root.cpu4-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #26a269; stroke-width: 1.8px; commands: root.cpu5-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #62a0ea; stroke-width: 1.8px; commands: root.cpu6-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.cpu7-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #9141ac; stroke-width: 1.8px; commands: root.cpu8-path; }
-                            // Y-axis labels overlaid inside the right edge
-                            Text { x: parent.width - self.width - 8px; y: 2px; text: "100 %"; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 48px; text: "50 %"; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 %"; color: #808080; font-size: 10px; }
+                        SectionTitle {
+                            title: "CPU";
+                            expanded <=> root.cpu-expanded;
+                            clicked => { root.toggle-resource-section("cpu"); }
                         }
-                        TimeLabels {}
-                        // 8 CPU Legend Swatches (4 equal columns spanning the full width)
-                        HorizontalLayout {
-                            spacing: 16px;
-                            padding-top: 4px;
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 6px;
-                                CpuSwatch { swatch-color: #e01b24; label: "CPU1"; value: root.cpu1-val; }
-                                CpuSwatch { swatch-color: #ff7800; label: "CPU2"; value: root.cpu2-val; }
+                        if root.cpu-expanded: VerticalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                height: 110px;
+                                clip: true;
+                                border-radius: 6px;
+                                GraphGrid {}
+                                // 8 CPU Line Paths spanning full width
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #e01b24; stroke-width: 1.8px; commands: root.cpu1-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.cpu2-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #f6d32d; stroke-width: 1.8px; commands: root.cpu3-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #57e389; stroke-width: 1.8px; commands: root.cpu4-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #26a269; stroke-width: 1.8px; commands: root.cpu5-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #62a0ea; stroke-width: 1.8px; commands: root.cpu6-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.cpu7-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #9141ac; stroke-width: 1.8px; commands: root.cpu8-path; }
+                                // Y-axis labels overlaid inside the right edge
+                                Text { x: parent.width - self.width - 8px; y: 2px; text: "100 %"; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 48px; text: "50 %"; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 94px; text: "0 %"; color: #808080; font-size: 10px; }
                             }
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 6px;
-                                CpuSwatch { swatch-color: #f6d32d; label: "CPU3"; value: root.cpu3-val; }
-                                CpuSwatch { swatch-color: #57e389; label: "CPU4"; value: root.cpu4-val; }
-                            }
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 6px;
-                                CpuSwatch { swatch-color: #26a269; label: "CPU5"; value: root.cpu5-val; }
-                                CpuSwatch { swatch-color: #62a0ea; label: "CPU6"; value: root.cpu6-val; }
-                            }
-                            VerticalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 6px;
-                                CpuSwatch { swatch-color: #1c71d8; label: "CPU7"; value: root.cpu7-val; }
-                                CpuSwatch { swatch-color: #9141ac; label: "CPU8"; value: root.cpu8-val; }
+                            TimeLabels {}
+                            // 8 CPU Legend Swatches (4 equal columns spanning the full width)
+                            HorizontalLayout {
+                                spacing: 16px;
+                                padding-top: 4px;
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 6px;
+                                    CpuSwatch { swatch-color: #e01b24; label: "CPU1"; value: root.cpu1-val; }
+                                    CpuSwatch { swatch-color: #ff7800; label: "CPU2"; value: root.cpu2-val; }
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 6px;
+                                    CpuSwatch { swatch-color: #f6d32d; label: "CPU3"; value: root.cpu3-val; }
+                                    CpuSwatch { swatch-color: #57e389; label: "CPU4"; value: root.cpu4-val; }
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 6px;
+                                    CpuSwatch { swatch-color: #26a269; label: "CPU5"; value: root.cpu5-val; }
+                                    CpuSwatch { swatch-color: #62a0ea; label: "CPU6"; value: root.cpu6-val; }
+                                }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 6px;
+                                    CpuSwatch { swatch-color: #1c71d8; label: "CPU7"; value: root.cpu7-val; }
+                                    CpuSwatch { swatch-color: #9141ac; label: "CPU8"; value: root.cpu8-val; }
+                                }
                             }
                         }
                     }
@@ -587,44 +630,51 @@ export component Monitor inherits Window {
                     VerticalLayout {
                         spacing: 8px;
                         padding-top: 6px;
-                        SectionTitle { title: "Memory and Swap"; }
-                        Rectangle {
-                            height: 110px;
-                            clip: true;
-                            border-radius: 6px;
-                            GraphGrid {}
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #e01b24; stroke-width: 1.8px; commands: root.mem-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #26a269; stroke-width: 1.8px; commands: root.swap-path; }
-                            Text { x: parent.width - self.width - 8px; y: 2px; text: "100 %"; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 48px; text: "50 %"; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 %"; color: #808080; font-size: 10px; }
+                        SectionTitle {
+                            title: "Memory and Swap";
+                            expanded <=> root.mem-expanded;
+                            clicked => { root.toggle-resource-section("mem"); }
                         }
-                        TimeLabels {}
-                        // Memory and Swap Gauges + Stats (2 equal columns)
-                        HorizontalLayout {
-                            spacing: 32px;
-                            padding-top: 6px;
-                            HorizontalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 14px;
-                                alignment: start;
-                                DonutGauge { ring-color: #e01b24; arc-path: root.mem-arc; }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    Text { text: "Memory"; color: #ffffff; font-size: 14px; font-weight: 600; }
-                                    Text { text: root.mem-stat-line1; color: #d0d0d0; font-size: 13px; }
-                                    Text { text: root.mem-stat-line2; color: #9a9a9a; font-size: 12px; }
-                                }
+                        if root.mem-expanded: VerticalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                height: 110px;
+                                clip: true;
+                                border-radius: 6px;
+                                GraphGrid {}
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #e01b24; stroke-width: 1.8px; commands: root.mem-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #26a269; stroke-width: 1.8px; commands: root.swap-path; }
+                                Text { x: parent.width - self.width - 8px; y: 2px; text: "100 %"; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 48px; text: "50 %"; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 94px; text: "0 %"; color: #808080; font-size: 10px; }
                             }
+                            TimeLabels {}
+                            // Memory and Swap Gauges + Stats (2 equal columns)
                             HorizontalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 14px;
-                                alignment: start;
-                                DonutGauge { ring-color: #26a269; arc-path: root.swap-arc; }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    Text { text: "Swap"; color: #ffffff; font-size: 14px; font-weight: 600; }
-                                    Text { text: root.swap-stat-line; color: #d0d0d0; font-size: 13px; }
+                                spacing: 32px;
+                                padding-top: 6px;
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 14px;
+                                    alignment: start;
+                                    DonutGauge { ring-color: #e01b24; arc-path: root.mem-arc; }
+                                    VerticalLayout {
+                                        spacing: 2px;
+                                        Text { text: "Memory"; color: #ffffff; font-size: 14px; font-weight: 600; }
+                                        Text { text: root.mem-stat-line1; color: #d0d0d0; font-size: 13px; }
+                                        Text { text: root.mem-stat-line2; color: #9a9a9a; font-size: 12px; }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 14px;
+                                    alignment: start;
+                                    DonutGauge { ring-color: #26a269; arc-path: root.swap-arc; }
+                                    VerticalLayout {
+                                        spacing: 2px;
+                                        Text { text: "Swap"; color: #ffffff; font-size: 14px; font-weight: 600; }
+                                        Text { text: root.swap-stat-line; color: #d0d0d0; font-size: 13px; }
+                                    }
                                 }
                             }
                         }
@@ -634,58 +684,65 @@ export component Monitor inherits Window {
                     VerticalLayout {
                         spacing: 8px;
                         padding-top: 6px;
-                        SectionTitle { title: "Network"; }
-                        Rectangle {
-                            height: 110px;
-                            clip: true;
-                            border-radius: 6px;
-                            GraphGrid {}
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.net-rx-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.net-tx-path; }
-                            Text { x: parent.width - self.width - 8px; y: 2px; text: root.net-top-label; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 48px; text: root.net-mid-label; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 B/s"; color: #808080; font-size: 10px; }
+                        SectionTitle {
+                            title: "Network";
+                            expanded <=> root.net-expanded;
+                            clicked => { root.toggle-resource-section("net"); }
                         }
-                        TimeLabels {}
-                        // Receiving and Sending Stats (2 equal columns)
-                        HorizontalLayout {
-                            spacing: 32px;
-                            padding-top: 6px;
+                        if root.net-expanded: VerticalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                height: 110px;
+                                clip: true;
+                                border-radius: 6px;
+                                GraphGrid {}
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.net-rx-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.net-tx-path; }
+                                Text { x: parent.width - self.width - 8px; y: 2px; text: root.net-top-label; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 48px; text: root.net-mid-label; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 94px; text: "0 B/s"; color: #808080; font-size: 10px; }
+                            }
+                            TimeLabels {}
+                            // Receiving and Sending Stats (2 equal columns)
                             HorizontalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 14px;
-                                alignment: start;
-                                Text { text: "⬇"; font-size: 26px; color: #3584e4; vertical-alignment: center; }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Receiving"; color: #d0d0d0; font-size: 13px; width: 100px; }
-                                        Text { text: root.net-rx-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Total Received"; color: #9a9a9a; font-size: 12px; width: 100px; }
-                                        Text { text: root.net-rx-total; color: #d0d0d0; font-size: 12px; }
+                                spacing: 32px;
+                                padding-top: 6px;
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 14px;
+                                    alignment: start;
+                                    Text { text: "⬇"; font-size: 26px; color: #3584e4; vertical-alignment: center; }
+                                    VerticalLayout {
+                                        spacing: 2px;
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Receiving"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                            Text { text: root.net-rx-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Total Received"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                            Text { text: root.net-rx-total; color: #d0d0d0; font-size: 12px; }
+                                        }
                                     }
                                 }
-                            }
-                            HorizontalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 14px;
-                                alignment: start;
-                                Text { text: "⬆"; font-size: 26px; color: #ff7800; vertical-alignment: center; }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Sending"; color: #d0d0d0; font-size: 13px; width: 100px; }
-                                        Text { text: root.net-tx-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Total Sent"; color: #9a9a9a; font-size: 12px; width: 100px; }
-                                        Text { text: root.net-tx-total; color: #d0d0d0; font-size: 12px; }
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 14px;
+                                    alignment: start;
+                                    Text { text: "⬆"; font-size: 26px; color: #ff7800; vertical-alignment: center; }
+                                    VerticalLayout {
+                                        spacing: 2px;
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Sending"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                            Text { text: root.net-tx-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Total Sent"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                            Text { text: root.net-tx-total; color: #d0d0d0; font-size: 12px; }
+                                        }
                                     }
                                 }
                             }
@@ -696,58 +753,65 @@ export component Monitor inherits Window {
                     VerticalLayout {
                         spacing: 8px;
                         padding-top: 6px;
-                        SectionTitle { title: "Disk"; }
-                        Rectangle {
-                            height: 110px;
-                            clip: true;
-                            border-radius: 6px;
-                            GraphGrid {}
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.disk-read-path; }
-                            Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.disk-write-path; }
-                            Text { x: parent.width - self.width - 8px; y: 2px; text: root.disk-top-label; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 48px; text: root.disk-mid-label; color: #808080; font-size: 10px; }
-                            Text { x: parent.width - self.width - 8px; y: 94px; text: "0 B/s"; color: #808080; font-size: 10px; }
+                        SectionTitle {
+                            title: "Disk";
+                            expanded <=> root.disk-expanded;
+                            clicked => { root.toggle-resource-section("disk"); }
                         }
-                        TimeLabels {}
-                        // Reading and Writing Stats (2 equal columns)
-                        HorizontalLayout {
-                            spacing: 32px;
-                            padding-top: 6px;
+                        if root.disk-expanded: VerticalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                height: 110px;
+                                clip: true;
+                                border-radius: 6px;
+                                GraphGrid {}
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #1c71d8; stroke-width: 1.8px; commands: root.disk-read-path; }
+                                Path { width: 100%; height: 100%; viewbox-width: 600; viewbox-height: 100; fit: fill; stroke: #ff7800; stroke-width: 1.8px; commands: root.disk-write-path; }
+                                Text { x: parent.width - self.width - 8px; y: 2px; text: root.disk-top-label; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 48px; text: root.disk-mid-label; color: #808080; font-size: 10px; }
+                                Text { x: parent.width - self.width - 8px; y: 94px; text: "0 B/s"; color: #808080; font-size: 10px; }
+                            }
+                            TimeLabels {}
+                            // Reading and Writing Stats (2 equal columns)
                             HorizontalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 14px;
-                                alignment: start;
-                                Text { text: "⬆"; font-size: 26px; color: #3584e4; vertical-alignment: center; }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Reading"; color: #d0d0d0; font-size: 13px; width: 100px; }
-                                        Text { text: root.disk-read-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Total Read"; color: #9a9a9a; font-size: 12px; width: 100px; }
-                                        Text { text: root.disk-read-total; color: #d0d0d0; font-size: 12px; }
+                                spacing: 32px;
+                                padding-top: 6px;
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 14px;
+                                    alignment: start;
+                                    Text { text: "⬆"; font-size: 26px; color: #3584e4; vertical-alignment: center; }
+                                    VerticalLayout {
+                                        spacing: 2px;
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Reading"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                            Text { text: root.disk-read-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Total Read"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                            Text { text: root.disk-read-total; color: #d0d0d0; font-size: 12px; }
+                                        }
                                     }
                                 }
-                            }
-                            HorizontalLayout {
-                                horizontal-stretch: 1;
-                                spacing: 14px;
-                                alignment: start;
-                                Text { text: "⬇"; font-size: 26px; color: #ff7800; vertical-alignment: center; }
-                                VerticalLayout {
-                                    spacing: 2px;
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Writing"; color: #d0d0d0; font-size: 13px; width: 100px; }
-                                        Text { text: root.disk-write-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 12px;
-                                        Text { text: "Total Written"; color: #9a9a9a; font-size: 12px; width: 100px; }
-                                        Text { text: root.disk-write-total; color: #d0d0d0; font-size: 12px; }
+                                HorizontalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 14px;
+                                    alignment: start;
+                                    Text { text: "⬇"; font-size: 26px; color: #ff7800; vertical-alignment: center; }
+                                    VerticalLayout {
+                                        spacing: 2px;
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Writing"; color: #d0d0d0; font-size: 13px; width: 100px; }
+                                            Text { text: root.disk-write-rate; color: #ffffff; font-size: 13px; font-weight: 600; }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 12px;
+                                            Text { text: "Total Written"; color: #9a9a9a; font-size: 12px; width: 100px; }
+                                            Text { text: root.disk-write-total; color: #d0d0d0; font-size: 12px; }
+                                        }
                                     }
                                 }
                             }
@@ -1057,7 +1121,7 @@ export component Monitor inherits Window {
 
                                         // Group Chevron (expand/collapse)
                                         if row.is-group: Text {
-                                            text: row.is-expanded ? "⌄" : "›";
+                                            text: row.is-expanded ? "▾" : "▸";
                                             color: touch.has-hover ? #ffffff : #3584e4;
                                             font-size: 13px;
                                             font-weight: 700;
@@ -1176,6 +1240,7 @@ export component Monitor inherits Window {
                                     }
                                 }
                                 touch := TouchArea {
+                                    mouse-cursor: (row.is-section || row.is-group) ? pointer : default;
                                     clicked => {
                                         if row.is-section {
                                             root.toggle-section(row.section-id);

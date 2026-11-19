@@ -335,6 +335,14 @@ fn render_monitor_and_confirmation() {
     let s_res = ui.window().take_snapshot().unwrap();
     save_image("preview-resources.png", &s_res);
 
+    // Resources tab with CPU and Network collapsed
+    ui.set_cpu_expanded(false);
+    ui.set_net_expanded(false);
+    let s_res_collapsed = ui.window().take_snapshot().unwrap();
+    save_image("preview-resources-collapsed.png", &s_res_collapsed);
+    ui.set_cpu_expanded(true);
+    ui.set_net_expanded(true);
+
     // 2. Processes tab (Tab 1)
     ui.set_current_tab(1);
     ui.set_confirm(false);
