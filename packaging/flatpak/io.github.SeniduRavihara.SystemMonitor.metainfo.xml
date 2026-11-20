@@ -12,6 +12,9 @@
       disk I/O throughput, mounted filesystem storage capacity, and process tree inspect/terminate controls.
     </p>
   </description>
+  <url type="homepage">https://github.com/SeniduRavihara/system-monitor</url>
+  <url type="bugtracker">https://github.com/SeniduRavihara/system-monitor/issues</url>
+  <url type="vcs-browser">https://github.com/SeniduRavihara/system-monitor</url>
   <launchable type="desktop-id">io.github.SeniduRavihara.SystemMonitor.desktop</launchable>
   <categories>
     <category>System</category>
@@ -20,7 +23,15 @@
   <provides>
     <binary>system-monitor</binary>
   </provides>
-  <developer id="io.github.SeniduRavihara">
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-20">
+      <description>
+        <p>Initial release of System Monitor with real-time hardware telemetry and Flatpak support.</p>
+      </description>
+    </release>
+  </releases>
+  <developer id="github.com">
     <name>Senidu Ravihara</name>
   </developer>
 </component>
