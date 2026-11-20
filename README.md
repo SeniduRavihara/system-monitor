@@ -18,7 +18,7 @@ You can download the standalone `.flatpak` bundle directly from the [Latest Rele
 flatpak install SystemMonitor.flatpak
 
 # Run System Monitor
-flatpak run io.github.SeniduRavihara.SystemMonitor
+flatpak run io.github.SeniduRavihara.system_monitor
 ```
 
 ### 2. Native Desktop Installation

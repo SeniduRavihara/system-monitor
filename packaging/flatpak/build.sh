@@ -25,9 +25,9 @@ BUILD_DIR="${SCRIPT_DIR}/build-dir"
 
 echo "--> Building Flatpak and installing locally..."
 cd "${SCRIPT_DIR}"
-flatpak-builder --user --install --force-clean "${BUILD_DIR}" io.github.SeniduRavihara.SystemMonitor.yml
+flatpak-builder --user --install --force-clean "${BUILD_DIR}" io.github.SeniduRavihara.system_monitor.yml
 
 echo ""
 echo "=== Success! ==="
 echo "You can now run the Flatpak with:"
-echo "  flatpak run io.github.SeniduRavihara.SystemMonitor"
+echo "  flatpak run io.github.SeniduRavihara.system_monitor"

@@ -25,7 +25,7 @@ jobs:
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: SystemMonitor.flatpak
-          manifest-path: packaging/flatpak/io.github.SeniduRavihara.SystemMonitor.yml
+          manifest-path: packaging/flatpak/io.github.SeniduRavihara.system_monitor.yml
           cache-key: flatpak-builder-${{ github.sha }}
 
       - name: Upload Flatpak bundle artifact

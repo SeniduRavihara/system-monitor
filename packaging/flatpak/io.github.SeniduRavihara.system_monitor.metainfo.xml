@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.SeniduRavihara.SystemMonitor</id>
+  <id>io.github.SeniduRavihara.system_monitor</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>System Monitor</name>
@@ -15,7 +15,7 @@
   <url type="homepage">https://github.com/SeniduRavihara/system-monitor</url>
   <url type="bugtracker">https://github.com/SeniduRavihara/system-monitor/issues</url>
   <url type="vcs-browser">https://github.com/SeniduRavihara/system-monitor</url>
-  <launchable type="desktop-id">io.github.SeniduRavihara.SystemMonitor.desktop</launchable>
+  <launchable type="desktop-id">io.github.SeniduRavihara.system_monitor.desktop</launchable>
   <categories>
     <category>System</category>
     <category>Monitor</category>
