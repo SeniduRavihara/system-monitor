@@ -1,12 +1,29 @@
 # System Monitor
 
-A Linux desktop process monitor built with Rust + Slint 1.18.1, matching the
-architecture of the supplied Crawler Studio reference: declarative Slint UI,
-Rust controller, background sampling, and the Winit software renderer.
+[![Flatpak CI & Release](https://github.com/SeniduRavihara/system-monitor/actions/workflows/flatpak.yml/badge.svg)](https://github.com/SeniduRavihara/system-monitor/actions/workflows/flatpak.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/SeniduRavihara/system-monitor?color=blue)](https://github.com/SeniduRavihara/system-monitor/releases/latest)
 
-## Install onto Linux
+A modern Linux desktop system and process monitor built with Rust + Slint 1.18.1. Features real-time per-core CPU and memory sparkline histories, collapsible resource categories, host file system breakdown, network bandwidth attribution with NetHogs, and full Flatpak container sandboxing.
 
-To install System Monitor as a first-class desktop application in your application launcher and terminal:
+---
+
+## Installation
+
+### 1. Download & Install via Flatpak (Recommended)
+
+You can download the standalone `.flatpak` bundle directly from the [Latest Release](https://github.com/SeniduRavihara/system-monitor/releases/latest):
+
+```sh
+# Install the Flatpak bundle for the current user
+flatpak install SystemMonitor.flatpak
+
+# Run System Monitor
+flatpak run io.github.SeniduRavihara.SystemMonitor
+```
+
+### 2. Native Desktop Installation
+
+To compile and install System Monitor as a first-class desktop application into your desktop app launcher (`/usr/local/bin` or `~/.local/bin`):
 
 ```sh
 # Install for current user (no root required)
@@ -25,14 +42,15 @@ To uninstall anytime:
 ./scripts/uninstall.sh
 ```
 
-## Run without installing
+---
 
-Double-click `launch.sh`, or run it in a terminal. The included `bin/system-monitor`
-is built for this Fedora x86-64 environment. To rebuild:
+## Run from Source without installing
+
+Double-click `launch.sh`, or run it in a terminal. To build and run directly with Cargo:
 
 ```sh
-cargo build --locked
-cargo run --locked
+cargo build --release --locked
+./target/release/system-monitor
 ```
 
 Network monitoring requires NetHogs. For passwordless monitoring without repeated authentication prompts, run:
