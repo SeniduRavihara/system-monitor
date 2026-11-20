@@ -23,6 +23,16 @@
   <provides>
     <binary>system-monitor</binary>
   </provides>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/SeniduRavihara/system_monitor/main/assets/screenshots/preview.png</image>
+      <caption>Main system monitor interface</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/SeniduRavihara/system_monitor/main/assets/screenshots/preview-resources.png</image>
+      <caption>Resource performance telemetry and graphs</caption>
+    </screenshot>
+  </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="0.1.0" date="2026-11-20">
