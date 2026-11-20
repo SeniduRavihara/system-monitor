@@ -174,6 +174,7 @@ pub fn collector() -> io::Result<()> {
             .args(["-t", "-d", "1", "-v", "0"])
             .env("LC_ALL", "C")
             .stdin(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()?,
     ));
     let c = child.clone();
