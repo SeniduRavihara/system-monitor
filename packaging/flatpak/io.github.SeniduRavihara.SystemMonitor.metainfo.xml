@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.SeniduRavihara.SystemMonitor</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>System Monitor</name>
+  <summary>Task Manager and Performance Monitor</summary>
+  <description>
+    <p>
+      System Monitor is a native Linux performance and task monitoring application built with Rust and Slint.
+      It features real-time monitoring of CPU per-core usage, system memory, swap, per-process bandwidth via NetHogs,
+      disk I/O throughput, mounted filesystem storage capacity, and process tree inspect/terminate controls.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.SeniduRavihara.SystemMonitor.desktop</launchable>
+  <categories>
+    <category>System</category>
+    <category>Monitor</category>
+  </categories>
+  <provides>
+    <binary>system-monitor</binary>
+  </provides>
+  <developer id="io.github.SeniduRavihara">
+    <name>Senidu Ravihara</name>
+  </developer>
+</component>

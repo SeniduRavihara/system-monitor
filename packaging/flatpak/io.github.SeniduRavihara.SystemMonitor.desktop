@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=System Monitor
+GenericName=Task Manager & System Monitor
+Comment=Monitor CPU, memory, swap, storage, processes, and network traffic
+Exec=system-monitor
+Icon=io.github.SeniduRavihara.SystemMonitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=system;process;task;manager;cpu;memory;network;monitor;slint;
+StartupNotify=true
+StartupWMClass=system-monitor

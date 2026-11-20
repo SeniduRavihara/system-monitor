@@ -137,55 +137,153 @@ pub struct FileSystemInfo {
 }
 
 pub fn read_filesystems() -> Vec<FileSystemInfo> {
-    let mut list = Vec::new();
-    let Ok(s) = fs::read_to_string("/proc/mounts") else {
-        return list;
-    };
     use std::ffi::CString;
+    let mut list = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for line in s.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() < 3 {
-            continue;
-        }
-        let dev = parts[0];
-        let mount_point = parts[1];
-        let fs_type = parts[2];
-        if !dev.starts_with("/dev/") {
-            continue;
-        }
-        if !seen.insert(mount_point.to_string()) {
-            continue;
-        }
-        let Ok(c_path) = CString::new(mount_point) else {
-            continue;
-        };
-        unsafe {
-            let mut stat: libc::statvfs = std::mem::zeroed();
-            if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
-                let frsize = stat.f_frsize as u64;
-                let total = frsize * stat.f_blocks as u64;
-                let free = frsize * stat.f_bfree as u64;
-                let avail = frsize * stat.f_bavail as u64;
-                let used = total.saturating_sub(free);
-                let used_percent = if total > 0 {
-                    (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0)
-                } else {
-                    0.0
+
+    let is_flatpak = std::path::Path::new("/.flatpak-info").exists()
+        || std::path::Path::new("/run/host/root").exists();
+
+    // In a Flatpak sandbox with --filesystem=host:ro, the host filesystem is mounted at /run/host/root.
+    // Reading /proc/mounts inside the sandbox exposes thousands of Flatpak internal bind-mounts
+    // (/usr, /app, /etc/machine-id, /etc/ld.so.conf, etc.).
+    // By parsing /proc/self/mountinfo, we can extract the genuine host mount entries.
+    if is_flatpak {
+        if let Ok(s) = fs::read_to_string("/proc/self/mountinfo") {
+            for line in s.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                // mountinfo format:
+                // 0: id, 1: parent_id, 2: major:minor, 3: root, 4: mount_point, ... - fs_type mount_source
+                let Some(sep_idx) = parts.iter().position(|&p| p == "-") else {
+                    continue;
                 };
-                list.push(FileSystemInfo {
-                    device: dev.into(),
-                    mount_point: mount_point.into(),
-                    fs_type: fs_type.into(),
-                    total,
-                    free,
-                    avail,
-                    used,
-                    used_percent,
-                });
+                if parts.len() < sep_idx + 3 || sep_idx < 5 {
+                    continue;
+                }
+                let container_mount = parts[4];
+                let fs_type = parts[sep_idx + 1];
+                let dev = parts[sep_idx + 2];
+
+                // We only care about host mounts (/run/host/root...) or physical block devices
+                if !dev.starts_with("/dev/") {
+                    continue;
+                }
+                if !container_mount.starts_with("/run/host/root") {
+                    continue;
+                }
+
+                // Map `/run/host/root` -> `/` and `/run/host/root/home` -> `/home`
+                let host_mount_point = if container_mount == "/run/host/root" {
+                    "/".to_string()
+                } else {
+                    container_mount.strip_prefix("/run/host/root").unwrap_or(container_mount).to_string()
+                };
+
+                // Skip internal host runtime / container bind mounts
+                if host_mount_point.starts_with("/var/lib/docker")
+                    || host_mount_point.starts_with("/var/lib/containerd")
+                    || host_mount_point.starts_with("/run/")
+                    || host_mount_point.starts_with("/dev/")
+                    || host_mount_point.starts_with("/proc/")
+                    || host_mount_point.starts_with("/sys/")
+                {
+                    continue;
+                }
+
+                if !seen.insert(host_mount_point.clone()) {
+                    continue;
+                }
+
+                let Ok(c_path) = CString::new(container_mount) else {
+                    continue;
+                };
+
+                unsafe {
+                    let mut stat: libc::statvfs = std::mem::zeroed();
+                    if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+                        let frsize = stat.f_frsize as u64;
+                        let total = frsize * stat.f_blocks as u64;
+                        let free = frsize * stat.f_bfree as u64;
+                        let avail = frsize * stat.f_bavail as u64;
+                        let used = total.saturating_sub(free);
+                        let used_percent = if total > 0 {
+                            (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0)
+                        } else {
+                            0.0
+                        };
+                        list.push(FileSystemInfo {
+                            device: dev.into(),
+                            mount_point: host_mount_point,
+                            fs_type: fs_type.into(),
+                            total,
+                            free,
+                            avail,
+                            used,
+                            used_percent,
+                        });
+                    }
+                }
             }
         }
     }
+
+    // Fallback or native host mode: read /proc/mounts
+    if list.is_empty() {
+        let Ok(s) = fs::read_to_string("/proc/mounts") else {
+            return list;
+        };
+        for line in s.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 3 {
+                continue;
+            }
+            let dev = parts[0];
+            let mount_point = parts[1];
+            let fs_type = parts[2];
+            if !dev.starts_with("/dev/") {
+                continue;
+            }
+            // Skip common sandbox/bind mounts if running outside or in other container
+            if mount_point.starts_with("/etc/")
+                || mount_point.starts_with("/usr/")
+                || mount_point.starts_with("/app")
+            {
+                continue;
+            }
+            if !seen.insert(mount_point.to_string()) {
+                continue;
+            }
+            let Ok(c_path) = CString::new(mount_point) else {
+                continue;
+            };
+            unsafe {
+                let mut stat: libc::statvfs = std::mem::zeroed();
+                if libc::statvfs(c_path.as_ptr(), &mut stat) == 0 {
+                    let frsize = stat.f_frsize as u64;
+                    let total = frsize * stat.f_blocks as u64;
+                    let free = frsize * stat.f_bfree as u64;
+                    let avail = frsize * stat.f_bavail as u64;
+                    let used = total.saturating_sub(free);
+                    let used_percent = if total > 0 {
+                        (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    };
+                    list.push(FileSystemInfo {
+                        device: dev.into(),
+                        mount_point: mount_point.into(),
+                        fs_type: fs_type.into(),
+                        total,
+                        free,
+                        avail,
+                        used,
+                        used_percent,
+                    });
+                }
+            }
+        }
+    }
+
     list
 }
 

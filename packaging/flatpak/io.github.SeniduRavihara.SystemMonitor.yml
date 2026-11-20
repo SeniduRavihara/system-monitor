@@ -1,0 +1,48 @@
+app-id: io.github.SeniduRavihara.SystemMonitor
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: system-monitor
+
+finish-args:
+  # Inter-process communication
+  - --share=ipc
+  # Display servers (Wayland and X11 fallback)
+  - --socket=wayland
+  - --socket=fallback-x11
+  # Hardware graphics acceleration
+  - --device=dri
+  # Access host filesystem mount points to inspect disk and system stats
+  - --filesystem=host:ro
+  # Network monitoring socket permissions
+  - --share=network
+  # Flatpak portal communication for host inspection
+  - --talk-name=org.freedesktop.Flatpak
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/system-monitor/cargo
+
+modules:
+  - name: system-monitor
+    buildsystem: simple
+    build-commands:
+      # Inject cargo vendoring configuration for 100% offline flatpak build
+      - mkdir -p .cargo
+      - cp packaging/flatpak/cargo-vendor-config.toml .cargo/config.toml
+      # Build release binary offline using vendored dependencies
+      - cargo build --offline --release --locked
+      # Install binary
+      - install -Dm755 target/release/system-monitor /app/bin/system-monitor
+      # Install desktop file & appstream metadata
+      - install -Dm644 packaging/flatpak/io.github.SeniduRavihara.SystemMonitor.desktop /app/share/applications/io.github.SeniduRavihara.SystemMonitor.desktop
+      - install -Dm644 packaging/flatpak/io.github.SeniduRavihara.SystemMonitor.metainfo.xml /app/share/metainfo/io.github.SeniduRavihara.SystemMonitor.metainfo.xml
+      # Install icon
+      - install -Dm644 assets/icons/system-monitor.svg /app/share/icons/hicolor/scalable/apps/io.github.SeniduRavihara.SystemMonitor.svg
+    sources:
+      - type: dir
+        path: ../../

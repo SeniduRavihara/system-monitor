@@ -1,2 +1,9 @@
 /target/
 /bin/
+
+# Flatpak build artifacts & vendored dependencies
+.flatpak-builder/
+packaging/flatpak/.flatpak-builder/
+packaging/flatpak/build-dir/
+packaging/flatpak/vendor/
+
