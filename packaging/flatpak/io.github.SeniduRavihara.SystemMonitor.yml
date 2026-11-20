@@ -24,6 +24,8 @@ finish-args:
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
   env:
     CARGO_HOME: /run/build/system-monitor/cargo
 
@@ -31,10 +33,7 @@ modules:
   - name: system-monitor
     buildsystem: simple
     build-commands:
-      # Inject cargo vendoring configuration for 100% offline flatpak build
-      - mkdir -p .cargo
-      - cp packaging/flatpak/cargo-vendor-config.toml .cargo/config.toml
-      # Build release binary offline using vendored dependencies
+      # Build release binary using dependencies supplied by cargo-sources.json
       - cargo build --offline --release --locked
       # Install binary
       - install -Dm755 target/release/system-monitor /app/bin/system-monitor
@@ -46,3 +45,4 @@ modules:
     sources:
       - type: dir
         path: ../../
+      - cargo-sources.json
